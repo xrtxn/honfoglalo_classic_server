@@ -1,0 +1,26 @@
+[package]
+name = "honfoglalo_classic_server"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = { version = "0.7.5", features = ["macros", "query"] }
+anyhow = "1.0.86"
+serde = { version = "1.0.201", features = ["derive"] }
+serde-aux = "4.5.0"
+tokio = { version = "1.37.0", features = ["macros", "rt-multi-thread", "signal"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing = "0.1.40"
+serde_json = "1.0.117"
+flate2 = "1.0"
+base64ct = { version = "1.6.0", features = ["alloc"] }
+chrono = "0.4.38"
+sqlx = { version = "0.7", features = ["runtime-tokio", "postgres", "chrono"] }
+dotenvy = "0.15.7"
+async-trait = "0.1.80"
+headers = "0.4.0"
+axum-extra = { version = "0.9.3", features = ["typed-header"] }
+time = "0.3.36"
+
+[profile.dev.package.sqlx-macros]
+opt-level = 3
