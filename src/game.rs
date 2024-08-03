@@ -1,2 +1,2 @@
-pub mod badges;
+pub mod request;
 pub mod response;
