@@ -1,23 +1,25 @@
-use crate::emulator::Emulator;
-use serde::{Deserialize, Serialize};
 use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+use crate::emulator::HungaryEmulator;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum BadgeName {
-    CW1(u8),
-    CW2(u8),
-    XPT(u8),
-    XPM(u8),
-    RLP(u8),
-    TWD(u8),
-    USQ(u8),
-    EXT(u8),
+	CW1(u8),
+	CW2(u8),
+	XPT(u8),
+	XPM(u8),
+	RLP(u8),
+	TWD(u8),
+	USQ(u8),
+	EXT(u8),
 }
 
 impl fmt::Display for BadgeName {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{:?}", self)
+	}
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -25,34 +27,34 @@ pub struct BadgeDetail {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CastleResponse {
-    error: String,
-    data: Badges,
+	error: String,
+	data: Badges,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Badges {
-    #[serde(rename = "allbadges")]
-    pub castle_badges: Vec<String>,
-    #[serde(rename = "castlebadges")]
-    pub new_levels: Vec<String>,
+	#[serde(rename = "allbadges")]
+	pub castle_badges: Vec<String>,
+	#[serde(rename = "castlebadges")]
+	pub new_levels: Vec<String>,
 }
 
 pub fn all_castle_badges() -> Vec<String> {
-    Vec::new()
+	Vec::new()
 }
 
 pub fn all_badges() -> Vec<String> {
-    Vec::new()
+	Vec::new()
 }
 
-impl Emulator for CastleResponse {
-    fn emulate(_: String) -> Self {
-        CastleResponse {
-            error: "0".to_string(),
-            data: Badges {
-                castle_badges: vec![],
-                new_levels: vec![],
-            },
-        }
-    }
+impl HungaryEmulator for CastleResponse {
+	fn emulate(_: String) -> Self {
+		CastleResponse {
+			error: "0".to_string(),
+			data: Badges {
+				castle_badges: vec![],
+				new_levels: vec![],
+			},
+		}
+	}
 }
