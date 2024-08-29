@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::channels::command::request::CommandRequest;
-use crate::channels::command::response::CommandResponse;
+use crate::channels::command::response::CommandResponseHeader;
 use crate::channels::listen::request::ListenRequest;
-use crate::channels::listen::response::ListenResponse;
+use crate::channels::listen::response::ListenResponseHeader;
 
 pub mod command;
 pub mod listen;
@@ -20,7 +20,7 @@ pub enum ChannelType {
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ResponseHeaders {
 	#[serde(rename = "C")]
-	Command(CommandResponse),
+	Command(CommandResponseHeader),
 	#[serde(rename = "L")]
-	Listen(ListenResponse),
+	Listen(ListenResponseHeader),
 }

@@ -1,12 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use crate::emulator::HungaryEmulator;
+use crate::emulator::Emulator;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "ROOT")]
 pub struct VillageSetupRoot {
-	#[serde(rename = "L")]
-	pub l: L,
 	#[serde(rename = "STATE")]
 	pub state: State,
 	#[serde(rename = "GAMEPARAMS")]
@@ -19,23 +17,13 @@ pub struct VillageSetupRoot {
 	pub features: Features,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct L {
-	#[serde(rename = "@CID")]
-	pub cid: String,
-	#[serde(rename = "@MN")]
-	pub mn: String,
-	#[serde(rename = "@R")]
-	pub r: String,
-}
-
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct State {
 	#[serde(rename = "@SCR")]
 	pub scr: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Mydata {
 	#[serde(rename = "@NAME")]
 	pub name: String,
@@ -95,26 +83,26 @@ pub struct Mydata {
 }
 
 // todo
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 struct HelpForge {
 	pub prodtime: i64,
 	pub remainingtime: i64,
 	pub prodcount: i64,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct QuestionCategories {
 	#[serde(rename = "@CATEGORIES")]
 	pub categories: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Features {
 	#[serde(rename = "@ENABLED")]
 	pub enabled: String,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GameParams {
 	#[serde(rename = "@BADGEBONUSES")]
 	pub badgebonuses: String,
@@ -128,14 +116,9 @@ pub struct GameParams {
 	pub hp: String,
 }
 
-impl HungaryEmulator for VillageSetupRoot {
-	fn emulate(mn: String) -> Self {
+impl Emulator for VillageSetupRoot {
+	fn emulate() -> Self {
 		VillageSetupRoot {
-            l: L {
-                cid: "1".to_string(),
-                mn,
-                r: "0".to_string(),
-            },
             state: State {
                 scr: "VILLAGE".to_string(),
             },

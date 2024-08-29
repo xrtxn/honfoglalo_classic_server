@@ -1,8 +1,7 @@
-pub trait HungaryEmulator {
-	fn emulate(mn: String) -> Self;
+pub trait Emulator {
+	fn emulate() -> Self;
 }
 
-#[allow(dead_code)]
 pub fn remove_root_tag(xml: String) -> String {
 	xml.replace("<ROOT>", "").replace("</ROOT>", "")
 }

@@ -3,47 +3,43 @@ use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::{Extension, Router};
-use fred::prelude::*;
-use sqlx::postgres::PgPool;
+use surrealdb::engine::any;
+use surrealdb::Surreal;
 use tokio::sync::Mutex;
 
 use crate::router::{client_castle, countries, friends, game, help, mobil};
+use crate::triviador::TriviadorResponseRoot;
 
 pub struct App {
-	db: PgPool,
-	tmp_db: RedisPool,
+	db: Surreal<any::Any>,
 }
 
 pub type SPState = Arc<Mutex<SinglePlayerState>>;
 pub struct SinglePlayerState {
+	pub is_listen_ready: bool,
 	pub is_logged_in: bool,
+	pub animation_finished: bool,
+	pub triviador_state: TriviadorResponseRoot,
 	pub listen_queue: VecDeque<String>,
 }
 
 impl App {
-	pub async fn new() -> Result<Self, Box<dyn std::error::Error>> {
-		let db = PgPool::connect(&dotenvy::var("DATABASE_URL").expect("DATABASE_URL not defined!"))
-			.await?;
-		sqlx::migrate!().run(&db).await?;
-		let config =
-			RedisConfig::from_url(&dotenvy::var("TMP_DB_URL").expect("TMP_DB_URL not defined!"))
-				.expect("Failed to create redis config from url");
-		let tmp_db = Builder::from_config(config)
-			.with_connection_config(|config| {
-				config.connection_timeout = std::time::Duration::from_secs(10);
-			})
-			// use exponential backoff, starting at 100 ms and doubling on each failed attempt up to
-			// 30 sec
-			.set_policy(ReconnectPolicy::new_exponential(0, 100, 30_000, 2))
-			.build_pool(8)
-			.expect("Failed to create redis pool");
-		tmp_db.init().await.expect("Failed to connect to redis");
-		Ok(Self { db, tmp_db })
+	pub async fn new() -> Result<Self, anyhow::Error> {
+		// Create database connection
+		let endpoint = dotenvy::var("SURREALDB_ENDPOINT").unwrap_or_else(|_| "memory".to_owned());
+		let db = any::connect(endpoint).await?;
+		// Select a specific namespace / database
+		db.use_ns("test").use_db("test").await?;
+
+		Ok(Self { db })
 	}
 
 	pub async fn serve(self) -> Result<(), anyhow::Error> {
 		let single_player_state = SPState::new(Mutex::new(SinglePlayerState {
+			is_listen_ready: false,
 			is_logged_in: false,
+			animation_finished: false,
+			triviador_state: TriviadorResponseRoot::new_game(),
 			listen_queue: VecDeque::new(),
 		}));
 		let app = Router::new()
@@ -54,8 +50,8 @@ impl App {
 			.route("/client_friends.php", post(friends))
 			.route("/client_castle.php", get(client_castle))
 			// .route("/client_extdata.php", get(extdata))
-			.layer(Extension(self.db.clone()));
-		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+			.layer(Extension(self.db));
+		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
 		axum::serve(listener, app.into_make_service()).await?;
 		Ok(())
 	}

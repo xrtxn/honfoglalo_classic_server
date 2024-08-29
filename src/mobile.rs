@@ -35,8 +35,9 @@ pub mod request {
 
 pub mod response {
 	use serde::{Deserialize, Serialize};
+	use serde_with::skip_serializing_none;
 
-	use crate::emulator::HungaryEmulator;
+	use crate::emulator::Emulator;
 	use crate::mobile::request::{LoginError, Warning};
 
 	#[derive(Serialize, Deserialize, Debug)]
@@ -45,11 +46,10 @@ pub mod response {
 		pub message: String,
 	}
 
+	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
 	pub struct LoginResult {
-		#[serde(skip_serializing_if = "Option::is_none")]
 		pub warning: Option<Warning>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		pub error: Option<LoginError>,
 		pub userid: String,
 		pub username: String,
@@ -60,12 +60,9 @@ pub mod response {
 		pub sign: String,
 		pub time: String,
 		pub stoc: String,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		pub currency: Option<String>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		pub extid: Option<String>,
 		pub server: Option<ServerConf>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		pub sysconf: Option<Sysconf>,
 	}
 
@@ -87,28 +84,24 @@ pub mod response {
 		Login(LoginResponse),
 	}
 
+	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
 	pub struct Sysconf {
-		#[serde(skip_serializing_if = "Option::is_none")]
 		#[serde(rename = "ALLOWCHARS")]
 		allowed_chars: Option<String>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		#[serde(rename = "DEVMODE")]
 		dev_mode: Option<u8>,
 	}
 
+	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
 	pub struct ServerConf {
-		#[serde(skip_serializing_if = "Option::is_none")]
 		#[serde(rename = "serveraddress")]
 		server_url: Option<String>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		#[serde(rename = "httpport")]
 		http_port: Option<String>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		#[serde(rename = "xsocketaddress")]
 		x_socket_address: Option<String>,
-		#[serde(skip_serializing_if = "Option::is_none")]
 		#[serde(rename = "xsocketport")]
 		x_socket_port: Option<u16>,
 	}
@@ -125,8 +118,8 @@ pub mod response {
 	//     }
 	// }
 
-	impl HungaryEmulator for LoginResponse {
-		fn emulate(_: String) -> Self {
+	impl Emulator for LoginResponse {
+		fn emulate() -> Self {
 			LoginResponse {
 				data: LoginResult {
 					warning: None,

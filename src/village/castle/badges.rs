@@ -2,7 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::emulator::HungaryEmulator;
+use crate::emulator::Emulator;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub enum BadgeName {
@@ -47,8 +47,8 @@ pub fn all_badges() -> Vec<String> {
 	Vec::new()
 }
 
-impl HungaryEmulator for CastleResponse {
-	fn emulate(_: String) -> Self {
+impl Emulator for CastleResponse {
+	fn emulate() -> Self {
 		CastleResponse {
 			error: "0".to_string(),
 			data: Badges {

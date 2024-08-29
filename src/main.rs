@@ -11,7 +11,6 @@ mod emulator;
 mod login_screen;
 mod menu;
 mod mobile;
-mod players;
 mod router;
 mod triviador;
 mod village;

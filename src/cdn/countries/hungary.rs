@@ -1,7 +1,7 @@
 use crate::cdn::countries::hungary::flags::HunFlags;
 use crate::cdn::countries::FlagIds::Hungarian;
 use crate::cdn::countries::{CountriesData, CountriesResponse};
-use crate::emulator::HungaryEmulator;
+use crate::emulator::Emulator;
 
 pub mod flags {
 	use serde::{Deserialize, Serialize};
@@ -60,8 +60,8 @@ pub mod flags {
 	}
 }
 
-impl HungaryEmulator for CountriesResponse {
-	fn emulate(_: String) -> Self {
+impl Emulator for CountriesResponse {
+	fn emulate() -> Self {
 		CountriesResponse {
 			error: "0".to_string(),
 			data: vec![CountriesData {

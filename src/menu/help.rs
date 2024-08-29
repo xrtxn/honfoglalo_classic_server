@@ -1,7 +1,7 @@
 pub mod info_help {
 	use serde::{Deserialize, Serialize};
 
-	use crate::emulator::HungaryEmulator;
+	use crate::emulator::Emulator;
 
 	#[derive(Serialize, Deserialize, Debug)]
 	pub struct HelpResponse {
@@ -22,8 +22,8 @@ pub mod info_help {
 		pub help_id: String,
 	}
 
-	impl HungaryEmulator for HelpResponse {
-		fn emulate(_: String) -> HelpResponse {
+	impl Emulator for HelpResponse {
+		fn emulate() -> HelpResponse {
 			HelpResponse {
 				error: "0".to_string(),
 				data: HelpData {
@@ -35,5 +35,4 @@ pub mod info_help {
 			}
 		}
 	}
-
 }

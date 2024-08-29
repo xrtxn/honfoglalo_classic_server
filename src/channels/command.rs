@@ -2,7 +2,7 @@ pub mod request {
 	use serde::{Deserialize, Serialize};
 
 	use crate::login_screen::LoginXML;
-	use crate::players::GetExternalData;
+	use crate::menu::friend_list::external_data::ExtDataRequest;
 	use crate::village::start::friendly_game::{
 		AddFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
 	};
@@ -36,39 +36,57 @@ pub mod request {
 		#[serde(rename = "ENTERROOM")]
 		EnterGameLobby(EnterLobbyRequest),
 		#[serde(rename = "GETEXTDATA")]
-		GetExternalData(GetExternalData),
+		GetExternalData(ExtDataRequest),
 		#[serde(rename = "EXITROOM")]
 		ExitCurrentRoom(ExitCurrentRoom),
 		#[serde(rename = "ADDSEPROOM")]
 		AddFriendlyRoom(AddFriendlyRoom),
 		#[serde(rename = "STARTSEPROOM")]
-		StartFriendlyRoom(StartFriendlyRoom),
+		StartTriviador(StartFriendlyRoom),
+		#[serde(rename = "READY")]
+		PlayerReady,
 	}
 }
 
 pub mod response {
 	use serde::{Deserialize, Serialize};
+	use serde_with::skip_serializing_none;
 
-	use crate::emulator::HungaryEmulator;
+	#[skip_serializing_none]
+	#[derive(Serialize, Deserialize, Debug)]
+	#[serde(rename = "ROOT")]
+	pub struct CommandResponse {
+		#[serde(rename = "C")]
+		header: CommandResponseHeader,
+		// todo this should be the type if it even exists
+		message: Option<String>,
+	}
+
+	impl CommandResponse {
+		pub fn new(header: CommandResponseHeader, message: Option<String>) {
+			CommandResponse { header, message };
+		}
+
+		pub fn ok(cid: impl ToString, mn: impl ToString) -> CommandResponse {
+			CommandResponse {
+				header: CommandResponseHeader {
+					client_id: cid.to_string(),
+					mn: mn.to_string(),
+					result: 0,
+				},
+				message: None,
+			}
+		}
+	}
 
 	#[derive(Serialize, Deserialize, Debug)]
 	#[serde(rename = "C")]
-	pub struct CommandResponse {
+	pub struct CommandResponseHeader {
 		#[serde(rename = "@CID")]
 		pub client_id: String,
 		#[serde(rename = "@MN")]
 		pub mn: String,
 		#[serde(rename = "@R")]
 		pub result: u8,
-	}
-
-	impl HungaryEmulator for CommandResponse {
-		fn emulate(mn: String) -> CommandResponse {
-			CommandResponse {
-				client_id: "1".to_string(),
-				mn,
-				result: 0,
-			}
-		}
 	}
 }

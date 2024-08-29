@@ -1,12 +1,11 @@
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 
-use crate::emulator::HungaryEmulator;
+use crate::emulator::Emulator;
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename = "ROOT")]
 pub struct GameMenuWaithall {
-	#[serde(rename = "L")]
-	pub l: L,
 	#[serde(rename = "STATE")]
 	pub state: State,
 	#[serde(rename = "GAMEROOM")]
@@ -16,21 +15,12 @@ pub struct GameMenuWaithall {
 }
 
 #[derive(Serialize, Deserialize)]
-pub struct L {
-	#[serde(rename = "@CID")]
-	pub cid: String,
-	#[serde(rename = "@MN")]
-	pub mn: String,
-	#[serde(rename = "@R")]
-	pub r: String,
-}
-
-#[derive(Serialize, Deserialize)]
 pub struct State {
 	#[serde(rename = "@SCR")]
 	pub screen: String,
 }
 
+#[skip_serializing_none]
 #[derive(Serialize, Deserialize)]
 pub struct Gameroom {
 	#[serde(rename = "@ID")]
@@ -45,7 +35,7 @@ pub struct Gameroom {
 	pub players: String,
 	#[serde(rename = "@INGAME")]
 	pub ingame: String,
-	#[serde(rename = "@REMAINING", skip_serializing_if = "Option::is_none")]
+	#[serde(rename = "@REMAINING")]
 	pub remaining_time: Option<u16>,
 	// todo complete some tags like closed and maxboosters
 	// triviador.swf/triviador.StartWindowMov
@@ -69,14 +59,9 @@ pub enum Waithall {
 	Game,
 }
 
-impl HungaryEmulator for GameMenuWaithall {
-	fn emulate(mn: String) -> Self {
+impl Emulator for GameMenuWaithall {
+	fn emulate() -> Self {
 		GameMenuWaithall {
-			l: L {
-				cid: "1".to_string(),
-				mn,
-				r: "0".to_string(),
-			},
 			state: State {
 				screen: "WAIT".to_string(),
 			},
