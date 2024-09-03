@@ -63,8 +63,8 @@ pub mod response {
 	}
 
 	impl CommandResponse {
-		pub fn new(header: CommandResponseHeader, message: Option<String>) {
-			CommandResponse { header, message };
+		pub fn new(header: CommandResponseHeader, message: Option<String>) -> CommandResponse {
+			CommandResponse { header, message }
 		}
 
 		pub fn ok(cid: impl ToString, mn: impl ToString) -> CommandResponse {

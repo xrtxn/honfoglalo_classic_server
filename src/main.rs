@@ -8,6 +8,7 @@ mod app;
 mod cdn;
 mod channels;
 mod emulator;
+mod users;
 mod login_screen;
 mod menu;
 mod mobile;
@@ -20,7 +21,7 @@ async fn main() {
 	tracing_subscriber::registry()
 		.with(EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(
 			|_| {
-				"axum_jwt_ware=debug,sqlx=warn,tower_http=debug,honfoglalo_classic_server=info"
+				"sqlx=warn,tower_http=debug,honfoglalo_classic_server=info,fred=info"
 					.into()
 			},
 		)))
