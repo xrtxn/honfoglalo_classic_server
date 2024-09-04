@@ -20,7 +20,7 @@ use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::triviador::{GameState, TriviadorGame};
+use crate::triviador::{Area, AvailableAreas, GameState, TriviadorGame};
 use crate::users;
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
@@ -80,7 +80,6 @@ pub async fn game(
 					)
 				}
 				CommandType::ChangeWaitHall(_) => {
-					// todo match chw
 					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate()).unwrap();
 					users::Users::push_listen_queue(&tmp_db, "1", &msg).await;
 					remove_root_tag(
@@ -150,11 +149,9 @@ pub async fn game(
 						}
 						1 => match gamestate.phase {
 							0 => {
-								dbg!();
 								TriviadorGame::choose_area(&tmp_db, GAME_ID).await.unwrap();
 							}
 							1 => {
-								warn!("AC: not starting a timer here stops the game for everyone");
 								return remove_root_tag(
 									quick_xml::se::to_string(&CommandResponse::ok(
 										comm.client_id,
@@ -171,16 +168,40 @@ pub async fn game(
 							todo!()
 						}
 					}
-					dbg!(&TriviadorGame::get_triviador(&tmp_db, GAME_ID)
-						.await
-						.unwrap());
 					let xml = quick_xml::se::to_string(
 						&TriviadorGame::get_triviador(&tmp_db, GAME_ID)
 							.await
 							.unwrap(),
 					)
 					.unwrap();
-					dbg!(xml.clone());
+					users::Users::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
+					remove_root_tag(
+						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
+							.unwrap(),
+					)
+				}
+				CommandType::SelectArea(area) => {
+					AvailableAreas::pop_county(&tmp_db, 1, area.area.try_into().unwrap())
+						.await
+						.unwrap();
+
+					GameState::set_gamestate(
+						&tmp_db,
+						GAME_ID,
+						GameState {
+							state: 1,
+							gameround: 0,
+							phase: 2,
+						},
+					)
+					.await
+					.unwrap();
+					let xml = quick_xml::se::to_string(
+						&TriviadorGame::get_triviador(&tmp_db, GAME_ID)
+							.await
+							.unwrap(),
+					)
+					.unwrap();
 					users::Users::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
 					remove_root_tag(
 						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))

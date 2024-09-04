@@ -23,6 +23,7 @@ dotenvy = "0.15.7"
 headers = "0.4.0"
 time = "0.3.36"
 hex = "0.4.3"
+compact_str = "0.8.0"
 
 [dev-dependencies]
 serde_test = "1"

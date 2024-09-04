@@ -3,6 +3,7 @@ pub mod request {
 
 	use crate::login_screen::LoginXML;
 	use crate::menu::friend_list::external_data::ExtDataRequest;
+	use crate::triviador::AreaSelection;
 	use crate::village::start::friendly_game::{
 		AddFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
 	};
@@ -45,6 +46,8 @@ pub mod request {
 		StartTriviador(StartFriendlyRoom),
 		#[serde(rename = "READY")]
 		PlayerReady,
+		#[serde(rename = "SELECT")]
+		SelectArea(AreaSelection)
 	}
 }
 

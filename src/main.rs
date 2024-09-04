@@ -15,6 +15,7 @@ mod mobile;
 mod router;
 mod triviador;
 mod village;
+mod utils;
 
 #[tokio::main]
 async fn main() {

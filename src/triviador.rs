@@ -1,12 +1,14 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
+use anyhow::bail;
 use fred::clients::RedisPool;
 use fred::prelude::*;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
 
 use crate::triviador::county::*;
+use crate::utils::split_string_n;
 
 #[derive(Debug)]
 struct PlayerData {
@@ -49,18 +51,28 @@ enum PlayerNames {
 	Player3,
 }
 
-#[derive(Clone, Debug)]
-struct Area {
-	owner: u8,
-	is_fortress: bool,
-	value: AreaValue,
+#[derive(Serialize, Clone, PartialEq, Debug)]
+pub enum AreaValue {
+	Unoccupied = 0,
+	_1000 = 1,
+	_400 = 2,
+	_300 = 3,
+	_200 = 4,
 }
 
-impl Serialize for Area {
-	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-	where
-		S: Serializer,
-	{
+#[derive(Clone, Debug, PartialEq)]
+pub struct Area {
+	pub owner: u8,
+	pub is_fortress: bool,
+	pub value: AreaValue,
+}
+
+impl Area {
+	pub fn new() -> HashMap<County, Area> {
+		HashMap::new()
+	}
+
+	pub fn serialize_to_hex(&self) -> String {
 		let mut ac = self.owner;
 		let vc = (self.value.clone() as u8) << 4;
 		ac += vc;
@@ -69,71 +81,123 @@ impl Serialize for Area {
 			ac |= 128;
 		}
 
-		let hex = format!("{:02x}", ac);
-		serializer.serialize_str(&hex)
+		format!("{:02x}", ac)
+	}
+
+	pub fn deserialize_from_hex(hex: &str) -> Result<Self, anyhow::Error> {
+		let byte = u8::from_str_radix(hex, 16)?;
+		let owner = byte & 0x0F;
+		let value = (byte >> 4) & 0x07;
+		let is_fortress = (byte & 0x80) != 0;
+		let value = AreaValue::try_from(value)?;
+
+		Ok(Area {
+			owner,
+			is_fortress,
+			value,
+		})
+	}
+
+	pub fn deserialize_full(s: String) -> Result<HashMap<County, Area>, anyhow::Error> {
+		let vals = split_string_n(&s);
+		let mut rest: HashMap<County, Area> = HashMap::new();
+		for (i, county_str) in vals.iter().enumerate() {
+			rest.insert(
+				// increase by 1 because we don't want the 0 value County
+				County::from((i as u8) + 1),
+				Area::deserialize_from_hex(county_str)?,
+			);
+		}
+		Ok(rest)
+	}
+
+	pub async fn get_full(
+		tmppool: &RedisPool,
+		game_id: u32,
+	) -> Result<HashMap<County, Area>, RedisError> {
+		let res: String = tmppool
+			.hget(format!("games:{}:triviador_state", game_id), "area_num")
+			.await?;
+		let rest = Self::deserialize_full(res).unwrap();
+		Ok(rest)
+	}
+
+	pub fn serialize_full(set_counties: &HashMap<County, Area>) -> Result<String, anyhow::Error> {
+		// later this may not be 38 for different countries
+		let mut serialized = String::with_capacity(38);
+		// start from 1 because we don't want the 0 value County
+		for i in 1..20 {
+			let county = County::from(i);
+			let area = set_counties.get(&county);
+			if area.is_some() {
+				serialized.push_str(&area.unwrap().serialize_to_hex());
+			} else {
+				serialized.push_str("00");
+			}
+		}
+		Ok(serialized)
+	}
+
+	// 13434343434342424242434141421112414243
+	pub async fn set_redis(
+		tmppool: &RedisPool,
+		game_id: u32,
+		serialized: String,
+	) -> Result<u8, RedisError> {
+		{
+			let res: u8 = tmppool
+				.hset(
+					format!("games:{}:triviador_state", game_id),
+					[("area_num", serialized)],
+				)
+				.await?;
+			Ok(res)
+		}
+	}
+
+	pub async fn change_area(
+		tmppool: &RedisPool,
+		game_id: u32,
+		values: (County, Area),
+	) -> Result<Option<Area>, RedisError> {
+		{
+			let mut full = Self::get_full(tmppool, game_id).await?;
+			// return the replaced area info
+			Ok(full.insert(values.0, values.1))
+		}
+	}
+}
+impl Serialize for Area {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(&self.serialize_to_hex())
 	}
 }
 
-#[derive(Serialize, Clone, Debug)]
-// todo use the names instead of values
-enum AreaValue {
-	_1000 = 1,
-	_400 = 2,
-	_300 = 3,
-	_200 = 4,
+pub(crate) fn areas_full_seralizer<S>(
+	counties: &HashMap<County, Area>,
+	s: S,
+) -> Result<S::Ok, S::Error>
+where
+	S: Serializer,
+{
+	s.serialize_str(&Area::serialize_full(counties).unwrap())
 }
 
-#[cfg(test)]
-mod tests {
-	use serde_test::{assert_ser_tokens, Token};
+impl TryFrom<u8> for AreaValue {
+	type Error = anyhow::Error;
 
-	use super::*;
-	#[test]
-	fn base_test() {
-		let base = &Base {
-			base_id: 2,
-			towers_destroyed: 2,
-		};
-		assert_ser_tokens(&base, &[Token::String("82")]);
-
-		let base = &Base {
-			base_id: 8,
-			towers_destroyed: 0,
-		};
-		assert_ser_tokens(&base, &[Token::String("08")]);
-	}
-
-	#[test]
-	fn area_test() {
-		let area = Area {
-			owner: 1,
-			is_fortress: false,
-			value: AreaValue::_200,
-		};
-
-		assert_ser_tokens(&area, &[Token::String("41")]);
-		let area = Area {
-			owner: 3,
-			is_fortress: false,
-			value: AreaValue::_1000,
-		};
-
-		assert_ser_tokens(&area, &[Token::String("13")]);
-	}
-
-	#[test]
-	fn county_serialize() {
-		let decoded = decode_available_areas(i32::from_str_radix("07FFFF", 16).unwrap());
-		assert_eq!(
-			decoded,
-			vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-		);
-		assert_eq!(
-			encode_available_areas(vec![
-				1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19
-			],),
-			"077FFF"
-		)
+	fn try_from(value: u8) -> Result<Self, anyhow::Error> {
+		match value {
+			0 => Ok(AreaValue::Unoccupied),
+			1 => Ok(AreaValue::_1000),
+			2 => Ok(AreaValue::_400),
+			3 => Ok(AreaValue::_300),
+			4 => Ok(AreaValue::_200),
+			_ => bail!("Failed to deserialize u8 to AreaValue"),
+		}
 	}
 }
 
@@ -168,7 +232,7 @@ impl TriviadorGame {
 				players_points: "0,0,0".to_string(),
 				selection: "000000".to_string(),
 				base_info: "000000".to_string(),
-				area_num: "0000000000000000000000000000000000000000".to_string(),
+				areas_info: Area::new(),
 				available_areas: Some(AvailableAreas {
 					areas: HashSet::new(),
 				}),
@@ -202,14 +266,10 @@ impl TriviadorGame {
 		game: TriviadorGame,
 	) -> Result<u8, RedisError> {
 		{
-			dbg!(0);
 			let mut res = TriviadorState::set_triviador_state(tmppool, game_id, game.state).await?;
-			dbg!(1);
 			res += PlayerInfo::set_info(tmppool, game_id, game.players).await?;
-			dbg!(2);
 			if game.cmd.is_some() {
 				res += Cmd::set_cmd(tmppool, game_id, game.cmd.unwrap()).await?;
-				dbg!(3);
 			}
 			Ok(res)
 		}
@@ -305,9 +365,9 @@ pub struct TriviadorState {
 	pub selection: String,
 	#[serde(rename = "@B")]
 	pub base_info: String,
-	#[serde(rename = "@A")]
+	#[serde(rename = "@A", serialize_with = "areas_full_seralizer")]
 	// used by: Math.floor(Util.StringVal(tag.A).length / 2);
-	pub area_num: String,
+	pub areas_info: HashMap<County, Area>,
 	#[serde(rename = "@AA", serialize_with = "available_serialize")]
 	pub available_areas: Option<AvailableAreas>,
 	#[serde(rename = "@UH")]
@@ -340,7 +400,7 @@ impl TriviadorState {
 					("players_points", state.players_points),
 					("selection", state.selection),
 					("base_info", state.base_info),
-					("area_num", state.area_num),
+					("area_num", Area::serialize_full(&state.areas_info).unwrap()),
 					// set available areas
 					("used_helps", state.used_helps),
 					// set room type if not none,
@@ -394,6 +454,7 @@ impl TriviadorState {
 		let round_info = RoundInfo::get_roundinfo(tmppool, game_id).await?;
 		let available_areas = AvailableAreas::get_available(tmppool, game_id).await?;
 		let shield_mission = ShieldMission::get_shield_mission(tmppool, game_id).await?;
+		let areas_info = Area::get_full(tmppool, game_id).await?;
 		Ok(TriviadorState {
 			map_name: res.get("map_name").unwrap().to_string(),
 			game_state,
@@ -403,7 +464,7 @@ impl TriviadorState {
 			players_points: res.get("players_points").unwrap().to_string(),
 			selection: res.get("selection").unwrap().to_string(),
 			base_info: res.get("base_info").unwrap().to_string(),
-			area_num: res.get("area_num").unwrap().to_string(),
+			areas_info,
 			available_areas,
 			used_helps: res.get("used_helps").unwrap().to_string(),
 			// todo
@@ -486,12 +547,17 @@ impl AvailableAreas {
 		Ok(Some(available))
 	}
 
-	pub(crate) async fn pop_county(tmppool: &RedisPool, game_id: u32) -> Result<u8, RedisError> {
+	/// this does not fail if the removable county is not there
+	pub(crate) async fn pop_county(
+		tmppool: &RedisPool,
+		game_id: u32,
+		county: County,
+	) -> Result<u8, RedisError> {
 		let res: u8 = tmppool
 			.lrem(
 				format!("games:{}:triviador_state:available_areas", game_id),
-				0,
-				-1,
+				1,
+				county.to_string(),
 			)
 			.await?;
 		Ok(res)
@@ -523,6 +589,12 @@ impl AvailableAreas {
 	}
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AreaSelection {
+	#[serde(rename = "@AREA")]
+	pub area: u8,
+}
+
 #[derive(Serialize, Debug, Clone)]
 pub struct PlayerInfo {
 	#[serde(rename = "@P1")]
@@ -544,8 +616,7 @@ pub struct PlayerInfo {
 	#[serde(rename = "@ROOM")]
 	pub room: String,
 	#[serde(rename = "@RULES")]
-	// this gives an interesting twist, 2 area instead of 1
-	// possible values 1,0
+	// 1,0 possibly means quick game
 	pub rules: String,
 }
 
@@ -602,9 +673,10 @@ pub mod county {
 	use std::fmt;
 	use std::str::FromStr;
 
-	use anyhow::anyhow;
+	use anyhow::bail;
 
 	use super::*;
+	use crate::utils::to_hex_with_length;
 	#[derive(Debug, Serialize, Clone)]
 	pub struct Cmd {
 		#[serde(rename = "@CMD")]
@@ -660,7 +732,6 @@ pub mod county {
 				cmd_timeout: res.get("cmd_timeout").unwrap().parse()?,
 			}))
 		}
-
 	}
 
 	#[allow(dead_code)]
@@ -694,6 +765,34 @@ pub mod county {
 		}
 	}
 
+	impl From<u8> for County {
+		fn from(value: u8) -> Self {
+			match value {
+				0 => County::NoResponse,
+				1 => County::Pest,
+				2 => County::Nograd,
+				3 => County::Heves,
+				4 => County::JaszNagykunSzolnok,
+				5 => County::BacsKiskun,
+				6 => County::Fejer,
+				7 => County::KomaromEsztergom,
+				8 => County::Borsod,
+				9 => County::HajduBihar,
+				10 => County::Bekes,
+				11 => County::Csongrad,
+				12 => County::Tolna,
+				13 => County::Somogy,
+				14 => County::Veszprem,
+				15 => County::GyorMosonSopron,
+				16 => County::SzabolcsSzatmarBereg,
+				17 => County::Baranya,
+				18 => County::Zala,
+				19 => County::Vas,
+				_ => todo!(),
+			}
+		}
+	}
+
 	impl FromStr for County {
 		type Err = anyhow::Error;
 
@@ -719,7 +818,7 @@ pub mod county {
 				"Baranya" => Ok(County::Baranya),
 				"Zala" => Ok(County::Zala),
 				"Vas" => Ok(County::Vas),
-				_ => Err(anyhow!("Invalid county name")),
+				_ => bail!("Invalid county name"),
 			}
 		}
 	}
@@ -731,8 +830,7 @@ pub mod county {
 		S: Serializer,
 	{
 		let counties = match counties {
-			// todo return with error
-			None => todo!(),
+			None => bail!("AvailableAreas were None!"),
 			Some(ss) => {
 				// may be empty
 				if ss.areas.is_empty() {
@@ -931,10 +1029,111 @@ impl Serialize for ShieldMission {
 	}
 }
 
-fn to_hex_with_length(bytes: &[u8], length: usize) -> String {
-	let encoded = hex::encode(bytes);
-	let trimmed = encoded.trim_start_matches('0');
+#[cfg(test)]
+mod tests {
+	use serde_test::{assert_ser_tokens, Token};
 
-	// Format the string to the desired length
-	format!("{:0>width$}", trimmed, width = length).to_uppercase()
+	use super::*;
+	#[test]
+	fn base_test() {
+		let base = &Base {
+			base_id: 2,
+			towers_destroyed: 2,
+		};
+		assert_ser_tokens(&base, &[Token::String("82")]);
+
+		let base = &Base {
+			base_id: 8,
+			towers_destroyed: 0,
+		};
+		assert_ser_tokens(&base, &[Token::String("08")]);
+	}
+
+	#[test]
+	fn area_test() {
+		let area = Area {
+			owner: 1,
+			is_fortress: false,
+			value: AreaValue::_200,
+		};
+
+		assert_ser_tokens(&area, &[Token::String("41")]);
+		assert_eq!(Area::deserialize_from_hex("41").unwrap(), area);
+
+		let area = Area {
+			owner: 3,
+			is_fortress: false,
+			value: AreaValue::_1000,
+		};
+
+		assert_ser_tokens(&area, &[Token::String("13")]);
+		let area = Area {
+			owner: 0,
+			is_fortress: false,
+			value: AreaValue::Unoccupied,
+		};
+
+		assert_ser_tokens(&area, &[Token::String("00")]);
+	}
+
+	#[test]
+	fn county_serialize() {
+		let decoded = decode_available_areas(i32::from_str_radix("07FFFF", 16).unwrap());
+		assert_eq!(
+			decoded,
+			vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+		);
+		assert_eq!(
+			encode_available_areas(vec![
+				1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19
+			],),
+			"077FFF"
+		)
+	}
+
+	#[test]
+	fn serialize() {
+		let res = Area::serialize_full(&HashMap::from([(
+			County::SzabolcsSzatmarBereg,
+			Area {
+				owner: 3,
+				is_fortress: false,
+				value: AreaValue::_1000,
+			},
+		)]))
+		.unwrap();
+		assert_eq!(res, "00000000000000000000000000000013000000");
+	}
+
+	#[test]
+	fn deserialize() {
+		let res =
+			Area::deserialize_full("13434343434342424242434141421112414243".to_string()).unwrap();
+
+		assert_eq!(
+			*res.get(&County::Pest).unwrap(),
+			Area {
+				owner: 3,
+				is_fortress: false,
+				value: AreaValue::_1000
+			}
+		);
+
+		assert_eq!(
+			*res.get(&County::SzabolcsSzatmarBereg).unwrap(),
+			Area {
+				owner: 2,
+				is_fortress: false,
+				value: AreaValue::_1000
+			}
+		);
+		assert_eq!(
+			*res.get(&County::Baranya).unwrap(),
+			Area {
+				owner: 1,
+				is_fortress: false,
+				value: AreaValue::_200
+			}
+		)
+	}
 }
