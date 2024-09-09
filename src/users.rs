@@ -1,8 +1,11 @@
 use fred::prelude::*;
 
-pub struct Users {}
-impl Users {
-	pub async fn reset(tmppool: &RedisPool, id: &str) {
+pub struct User {
+	id: i32,
+	name: String,
+}
+impl User {
+	pub async fn reset(tmppool: &RedisPool, id: i32) {
 		// todo reset properly
 		let _: String = tmppool.flushall(false).await.unwrap();
 		tmppool
@@ -15,13 +18,13 @@ impl Users {
 		// tmppool.del::<u8, _>("listen_queue").await.unwrap();
 	}
 
-	pub async fn push_listen_queue(tmppool: &RedisPool, id: &str, queue: &str) {
+	pub async fn push_listen_queue(tmppool: &RedisPool, id: i32, queue: &str) {
 		tmppool
 			.rpush(format!("users:{}:listen_queue", id), queue)
 			.await
 			.unwrap()
 	}
-	pub async fn get_next_listen(tmppool: &RedisPool, id: &str) -> Option<String> {
+	pub async fn get_next_listen(tmppool: &RedisPool, id: i32) -> Option<String> {
 		let res: Option<String> = tmppool
 			.lpop(format!("users:{}:listen_queue", id), Some(1))
 			.await
@@ -29,7 +32,7 @@ impl Users {
 		res
 	}
 
-	pub async fn is_listen_empty(tmppool: &RedisPool, id: &str) -> bool {
+	pub async fn is_listen_empty(tmppool: &RedisPool, id: i32) -> bool {
 		let res: u8 = tmppool
 			.exists(format!("users:{}:listen_queue", id))
 			.await
@@ -37,14 +40,14 @@ impl Users {
 		res == 0
 	}
 
-	pub async fn is_listen_ready(tmppool: &RedisPool, id: &str) -> bool {
+	pub async fn is_listen_ready(tmppool: &RedisPool, id: i32) -> bool {
 		let res: String = tmppool
 			.hget(format!("users:{}:login_state", id), "is_listen_ready")
 			.await
 			.unwrap();
 		res.parse::<bool>().unwrap()
 	}
-	pub async fn set_listen_ready(tmppool: &RedisPool, id: &str, is_ready: bool) -> bool {
+	pub async fn set_listen_ready(tmppool: &RedisPool, id: i32, is_ready: bool) -> bool {
 		tmppool
 			.hset::<bool, _, _>(
 				format!("users:{}:login_state", id),
@@ -54,7 +57,7 @@ impl Users {
 			.unwrap()
 	}
 
-	pub async fn get_is_logged_in(tmppool: &RedisPool, id: &str) -> bool {
+	pub async fn get_is_logged_in(tmppool: &RedisPool, id: i32) -> bool {
 		let res: String = tmppool
 			.hget(format!("users:{}:login_state", id), "is_logged_in")
 			.await
@@ -62,7 +65,7 @@ impl Users {
 		res.parse::<bool>().unwrap()
 	}
 
-	pub async fn set_is_logged_in(tmppool: &RedisPool, id: &str, is_logged_in: bool) -> bool {
+	pub async fn set_is_logged_in(tmppool: &RedisPool, id: i32, is_logged_in: bool) -> bool {
 		tmppool
 			.hset::<bool, _, _>(
 				format!("users:{}:login_state", id),

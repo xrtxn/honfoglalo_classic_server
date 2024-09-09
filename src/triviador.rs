@@ -27,6 +27,47 @@ struct Base {
 }
 
 impl Base {
+	pub fn serialize_to_hex(&self) -> String {
+		let base_part = self.towers_destroyed << 6;
+		crate::utils::to_hex_with_length(&[self.base_id + base_part], 2)
+	}
+
+	pub fn serialize_full(bases: HashMap<PlayerNames, Base>) -> Result<String, anyhow::Error> {
+		dbg!(&bases);
+		// later this may not be 38 for different countries
+		let mut serialized = String::with_capacity(6);
+		for i in 1..4 {
+			match bases.get(&PlayerNames::from(i)) {
+				None => serialized.push_str("00"),
+				Some(base) => serialized.push_str(&base.serialize_to_hex()),
+			}
+		}
+		Ok(serialized)
+	}
+
+	pub fn deserialize_from_hex(hex: &str) -> Result<Self, anyhow::Error> {
+		let value = u8::from_str_radix(hex, 16)?;
+		let towers_destroyed = value >> 6;
+		let base_id = value & 0b0011_1111;
+		Ok(Base {
+			base_id,
+			towers_destroyed,
+		})
+	}
+
+	pub fn deserialize_full(s: &str) -> Result<HashMap<PlayerNames, Base>, anyhow::Error> {
+		let vals = split_string_n(s, 2);
+		let mut rest: HashMap<PlayerNames, Base> = HashMap::with_capacity(3);
+		for (i, base_str) in vals.iter().enumerate() {
+			rest.insert(
+				// increase by 1 because we don't have Player0
+				PlayerNames::from(i as u8 + 1),
+				Base::deserialize_from_hex(base_str)?,
+			);
+		}
+		Ok(rest)
+	}
+
 	pub fn new_tower_destroyed(&mut self) {
 		todo!();
 		self.towers_destroyed += 1;
@@ -38,9 +79,7 @@ impl Serialize for Base {
 	where
 		S: Serializer,
 	{
-		let base_part = self.towers_destroyed << 6;
-		let hex = format!("{:02x}", self.base_id + base_part);
-		serializer.serialize_str(&hex)
+		serializer.serialize_str(&self.serialize_to_hex())
 	}
 }
 
@@ -49,6 +88,16 @@ enum PlayerNames {
 	Player1,
 	Player2,
 	Player3,
+}
+impl From<u8> for PlayerNames {
+	fn from(value: u8) -> Self {
+		match value {
+			1 => Self::Player1,
+			2 => Self::Player2,
+			3 => Self::Player3,
+			_ => todo!(),
+		}
+	}
 }
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
@@ -99,8 +148,8 @@ impl Area {
 	}
 
 	pub fn deserialize_full(s: String) -> Result<HashMap<County, Area>, anyhow::Error> {
-		let vals = split_string_n(&s);
-		let mut rest: HashMap<County, Area> = HashMap::new();
+		let vals = split_string_n(&s, 2);
+		let mut rest: HashMap<County, Area> = HashMap::with_capacity(19);
 		for (i, county_str) in vals.iter().enumerate() {
 			rest.insert(
 				// increase by 1 because we don't want the 0 value County
@@ -129,16 +178,18 @@ impl Area {
 		for i in 1..20 {
 			let county = County::from(i);
 			let area = set_counties.get(&county);
-			if area.is_some() {
-				serialized.push_str(&area.unwrap().serialize_to_hex());
-			} else {
-				serialized.push_str("00");
+			match area {
+				None => {
+					serialized.push_str("00");
+				}
+				Some(area) => {
+					serialized.push_str(&area.serialize_to_hex());
+				}
 			}
 		}
 		Ok(serialized)
 	}
 
-	// 13434343434342424242434141421112414243
 	pub async fn set_redis(
 		tmppool: &RedisPool,
 		game_id: u32,
@@ -345,7 +396,7 @@ impl TriviadorGame {
 
 #[skip_serializing_none]
 #[derive(Serialize, Debug, Clone)]
-pub struct TriviadorState {
+pub(crate) struct TriviadorState {
 	#[serde(rename = "@SCR")]
 	pub map_name: String,
 	// todo flatten
@@ -830,7 +881,8 @@ pub mod county {
 		S: Serializer,
 	{
 		let counties = match counties {
-			None => bail!("AvailableAreas were None!"),
+			// should return with error
+			None => todo!(),
 			Some(ss) => {
 				// may be empty
 				if ss.areas.is_empty() {
@@ -1040,13 +1092,44 @@ mod tests {
 			base_id: 2,
 			towers_destroyed: 2,
 		};
-		assert_ser_tokens(&base, &[Token::String("82")]);
+		assert_eq!(base.serialize_to_hex(), "82");
+		assert_eq!(Base::deserialize_from_hex("82").unwrap(), *base);
 
 		let base = &Base {
 			base_id: 8,
 			towers_destroyed: 0,
 		};
-		assert_ser_tokens(&base, &[Token::String("08")]);
+		assert_eq!(base.serialize_to_hex(), "08");
+		assert_eq!(Base::deserialize_from_hex("08").unwrap(), *base);
+
+		let s = "8C080B";
+		let res = Base::deserialize_full(s).unwrap();
+		assert_eq!(
+			HashMap::from([
+				(
+					PlayerNames::Player1,
+					Base {
+						base_id: 12,
+						towers_destroyed: 2
+					}
+				),
+				(
+					PlayerNames::Player2,
+					Base {
+						base_id: 8,
+						towers_destroyed: 0
+					}
+				),
+				(
+					PlayerNames::Player3,
+					Base {
+						base_id: 11,
+						towers_destroyed: 0
+					}
+				)
+			]),
+			res
+		);
 	}
 
 	#[test]
@@ -1092,7 +1175,7 @@ mod tests {
 	}
 
 	#[test]
-	fn serialize() {
+	fn full_area_serialize() {
 		let res = Area::serialize_full(&HashMap::from([(
 			County::SzabolcsSzatmarBereg,
 			Area {
@@ -1106,7 +1189,8 @@ mod tests {
 	}
 
 	#[test]
-	fn deserialize() {
+	fn full_area_deserialize() {
+		// todo this may be an invalid string
 		let res =
 			Area::deserialize_full("13434343434342424242434141421112414243".to_string()).unwrap();
 

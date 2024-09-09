@@ -1,4 +1,5 @@
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_aux::prelude::deserialize_number_from_string;
 use serde_with::skip_serializing_none;
 
@@ -18,7 +19,7 @@ pub struct AddFriendlyRoom {
 	#[serde(rename = "@RULES")]
 	pub rules: i8,
 	#[serde(rename = "@QCATS")]
-	pub qcats: String,
+	pub question_categories: String,
 	#[serde(rename = "@CHATMSG")]
 	pub chatmsg: String,
 }
@@ -27,59 +28,115 @@ pub struct AddFriendlyRoom {
 pub struct StartFriendlyRoom {}
 
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(rename = "ACTIVESEPROOM")]
 pub struct ActiveSepRoom {
 	#[serde(rename = "@CODE")]
-	pub code: String,
+	pub code: Option<u16>,
 	#[serde(rename = "@P1")]
-	pub p1: String,
+	pub player1_id: i32,
+	pub player1_ready: bool,
 	#[serde(rename = "@PN1")]
-	pub pn1: String,
+	pub player1_name: String,
 	#[serde(rename = "@P2")]
-	pub p2: String,
+	pub player2_id: i32,
+	pub player2_ready: bool,
+	#[serde(rename = "@PN2")]
+	pub player2_name: Option<String>,
 	#[serde(rename = "@P3")]
-	pub p3: String,
+	pub player3_id: i32,
+	pub player3_ready: bool,
+	#[serde(rename = "@PN3")]
+	pub player3_name: Option<String>,
 	#[serde(rename = "@STARTDELAY")]
 	pub start_delay: Option<u8>,
 }
 
+impl Serialize for ActiveSepRoom {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		let mut state = serializer.serialize_struct("ACTIVESEPROOM", 9)?;
+
+		if let Some(code) = &self.code {
+			state.serialize_field("@CODE", code)?;
+		}
+
+		state.serialize_field(
+			"@P1",
+			&format!("{},{}", self.player1_id, self.player1_ready as u8),
+		)?;
+		state.serialize_field("@PN1", &self.player1_name)?;
+
+		state.serialize_field(
+			"@P2",
+			&format!("{},{}", self.player2_id, self.player2_ready as u8),
+		)?;
+		if let Some(name) = &self.player2_name {
+			state.serialize_field("@PN2", name)?;
+		}
+
+		state.serialize_field(
+			"@P3",
+			&format!("{},{}", self.player3_id, self.player3_ready as u8),
+		)?;
+		if let Some(name) = &self.player3_name {
+			state.serialize_field("@PN3", name)?;
+		}
+
+		if let Some(start_delay) = &self.start_delay {
+			state.serialize_field("@STARTDELAY", start_delay)?;
+		}
+		state.end()
+	}
+}
+
 impl ActiveSepRoom {
-	// todo pass a struct
-	pub(crate) fn new_bots_room(p_id: u8, player_name: String) -> ActiveSepRoom {
+	pub(crate) fn new_bots_room(player1_id: i32, player1_name: &str) -> ActiveSepRoom {
 		ActiveSepRoom {
-			code: "1234".to_string(),
-			p1: format!("{},0", p_id),
-			pn1: player_name,
-			p2: "-1,0".to_string(),
-			p3: "-1,0".to_string(),
+			code: None,
+			player1_id,
+			player1_ready: false,
+			player1_name: player1_name.to_string(),
+			player2_id: -1,
+			player2_ready: false,
+			player2_name: None,
+			player3_id: -1,
+			player3_ready: false,
+			player3_name: None,
 			start_delay: None,
 		}
 	}
 
+	pub(crate) fn make_bots_ready(&mut self) {
+		self.player2_ready = true;
+		self.player3_ready = true;
+	}
+
 	pub(crate) fn start_friendly_room(&mut self) {
-		self.start_delay = Some(1);
+		self.start_delay = Some(5);
 	}
 }
 
-// pub fn starting_emu() -> ActiveSepRoom {
-// 	ActiveSepRoom {
-// 		code: "1234".to_string(),
-// 		p1: "1,0".to_string(),
-// 		pn1: "xrtxn".to_string(),
-// 		p2: "-1,0".to_string(),
-// 		p3: "-1,0".to_string(),
-// 		start_delay: Some("1".to_string()),
-// 	}
-// }
-//
-// pub fn ready_emu() -> ActiveSepRoom {
-// 	ActiveSepRoom {
-// 		code: "1234".to_string(),
-// 		p1: "1,0".to_string(),
-// 		pn1: "xrtxn".to_string(),
-// 		p2: "-1,0".to_string(),
-// 		p3: "-1,0".to_string(),
-// 		start_delay: None,
-// 	}
-// }
+#[test]
+fn friendly_test() {
+	let room = ActiveSepRoom {
+		code: None,
+		player1_id: 1,
+		player1_ready: false,
+		player1_name: "xrtxn".to_string(),
+		player2_id: -1,
+		player2_ready: false,
+		player2_name: None,
+		player3_id: -1,
+		player3_ready: false,
+		player3_name: None,
+		start_delay: None,
+	};
+
+	let serialized = quick_xml::se::to_string(&room).unwrap();
+
+	let expected = r#"<ACTIVESEPROOM P1="1,0" PN1="xrtxn" P2="-1,0" P3="-1,0"/>"#;
+	assert_eq!(serialized, expected);
+}

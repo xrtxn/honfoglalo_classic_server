@@ -8,23 +8,20 @@ mod app;
 mod cdn;
 mod channels;
 mod emulator;
-mod users;
 mod login_screen;
 mod menu;
 mod mobile;
 mod router;
 mod triviador;
-mod village;
+mod users;
 mod utils;
+mod village;
 
 #[tokio::main]
 async fn main() {
 	tracing_subscriber::registry()
 		.with(EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(
-			|_| {
-				"sqlx=warn,tower_http=debug,honfoglalo_classic_server=info,fred=info"
-					.into()
-			},
+			|_| "sqlx=warn,tower_http=debug,honfoglalo_classic_server=info,fred=info".into(),
 		)))
 		.with(tracing_subscriber::fmt::layer())
 		.init();

@@ -20,7 +20,7 @@ use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::triviador::{Area, AvailableAreas, GameState, TriviadorGame};
+use crate::triviador::{AvailableAreas, GameState, TriviadorGame};
 use crate::users;
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
@@ -59,7 +59,8 @@ pub async fn game(
 	body: String,
 ) -> String {
 	const GAME_ID: u32 = 1;
-	const PLAYER_ID: &str = "1";
+	const PLAYER_ID: i32 = 1;
+	const PLAYER_NAME: &str = "xrtxn";
 	let string = {
 		let lines: Vec<&str> = body.lines().collect();
 		format!("<ROOT>{}</ROOT>", lines.get(1).unwrap())
@@ -74,14 +75,14 @@ pub async fn game(
 			match ser.msg_type {
 				CommandType::Login(_) => {
 					// todo validate login
-					users::Users::reset(&tmp_db, "1").await;
+					users::User::reset(&tmp_db, PLAYER_ID).await;
 					remove_root_tag(
-						quick_xml::se::to_string(&CommandResponse::ok("1", comm.mn)).unwrap(),
+						quick_xml::se::to_string(&CommandResponse::ok(PLAYER_ID, comm.mn)).unwrap(),
 					)
 				}
 				CommandType::ChangeWaitHall(_) => {
 					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate()).unwrap();
-					users::Users::push_listen_queue(&tmp_db, "1", &msg).await;
+					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &msg).await;
 					remove_root_tag(
 						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
 							.unwrap(),
@@ -111,11 +112,11 @@ pub async fn game(
 				}
 				CommandType::AddFriendlyRoom(_) => {
 					let xml = quick_xml::se::to_string(&ActiveSepRoom::new_bots_room(
-						1,
-						"xrtxn".to_string(),
+						PLAYER_ID,
+						PLAYER_NAME,
 					))
 					.unwrap();
-					users::Users::push_listen_queue(&tmp_db, "1", &xml).await;
+					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
 					remove_root_tag(
 						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
 							.unwrap(),
@@ -124,24 +125,24 @@ pub async fn game(
 				CommandType::StartTriviador(_) => {
 					// todo make the server handle the game
 					let xml = quick_xml::se::to_string(
-						&TriviadorGame::new_game(&tmp_db, 1).await.unwrap(),
+						&TriviadorGame::new_game(&tmp_db, GAME_ID).await.unwrap(),
 					)
 					.unwrap();
-					users::Users::push_listen_queue(&tmp_db, "1", &xml).await;
+					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
 					remove_root_tag(
 						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
 							.unwrap(),
 					)
 				}
 				CommandType::PlayerReady => {
-					if users::Users::is_listen_ready(&tmp_db, "1").await {
+					if users::User::is_listen_ready(&tmp_db, PLAYER_ID).await {
 						tokio::time::sleep(Duration::from_millis(2000)).await;
 						return remove_root_tag(
 							quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
 								.unwrap(),
 						);
 					}
-					users::Users::set_listen_ready(&tmp_db, "1", true).await;
+					users::User::set_listen_ready(&tmp_db, PLAYER_ID, true).await;
 					let gamestate = GameState::get_gamestate(&tmp_db, GAME_ID).await.unwrap();
 					match gamestate.state {
 						11 => {
@@ -174,16 +175,20 @@ pub async fn game(
 							.unwrap(),
 					)
 					.unwrap();
-					users::Users::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
+					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
 					remove_root_tag(
 						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
 							.unwrap(),
 					)
 				}
-				CommandType::SelectArea(area) => {
-					AvailableAreas::pop_county(&tmp_db, 1, area.area.try_into().unwrap())
-						.await
-						.unwrap();
+				CommandType::SelectArea(area_selection) => {
+					AvailableAreas::pop_county(
+						&tmp_db,
+						GAME_ID,
+						area_selection.area.try_into().unwrap(),
+					)
+					.await
+					.unwrap();
 
 					GameState::set_gamestate(
 						&tmp_db,
@@ -202,7 +207,7 @@ pub async fn game(
 							.unwrap(),
 					)
 					.unwrap();
-					users::Users::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
+					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await;
 					remove_root_tag(
 						quick_xml::se::to_string(&CommandResponse::ok(comm.client_id, comm.mn))
 							.unwrap(),
@@ -212,14 +217,14 @@ pub async fn game(
 		}
 		ChannelType::Listen(lis) => {
 			let ser: ListenRoot = quick_xml::de::from_str(&string).unwrap();
-			users::Users::set_listen_ready(&tmp_db, "1", ser.listen.is_ready).await;
+			users::User::set_listen_ready(&tmp_db, PLAYER_ID, ser.listen.is_ready).await;
 			if !ser.listen.is_ready {
-				while !users::Users::is_listen_ready(&tmp_db, "1").await {
+				while !users::User::is_listen_ready(&tmp_db, PLAYER_ID).await {
 					tokio::time::sleep(Duration::from_millis(1000)).await;
 				}
 			}
-			if !users::Users::get_is_logged_in(&tmp_db, "1").await {
-				users::Users::set_is_logged_in(&tmp_db, "1", true).await;
+			if !users::User::get_is_logged_in(&tmp_db, PLAYER_ID).await {
+				users::User::set_is_logged_in(&tmp_db, PLAYER_ID, true).await;
 				return remove_root_tag(
 					quick_xml::se::to_string(&ListenResponse::new(
 						ListenResponseHeader {
@@ -233,24 +238,28 @@ pub async fn game(
 				);
 			}
 			loop {
-				if !users::Users::is_listen_empty(&tmp_db, "1").await {
+				if !users::User::is_listen_empty(&tmp_db, PLAYER_ID).await {
 					if lis.mn == "2" {
-						let mut t = ActiveSepRoom::new_bots_room(1, "xrtxn".to_string());
+						let mut t = ActiveSepRoom::new_bots_room(PLAYER_ID, PLAYER_NAME);
 						t.start_friendly_room();
 						let msg = quick_xml::se::to_string(&t).unwrap();
-						users::Users::push_listen_queue(&tmp_db, "1", &msg).await;
+						users::User::push_listen_queue(&tmp_db, 1, &msg).await;
 						tokio::time::sleep(Duration::from_millis(1000)).await;
 					}
 
 					return format!(
 						"{}\n{}",
 						quick_xml::se::to_string(&ListenResponseHeader {
-							client_id: "1".to_string(),
+							client_id: PLAYER_ID.to_string(),
 							mn: lis.mn,
 							result: 0,
 						})
 						.unwrap(),
-						remove_root_tag(users::Users::get_next_listen(&tmp_db, "1").await.unwrap())
+						remove_root_tag(
+							users::User::get_next_listen(&tmp_db, PLAYER_ID)
+								.await
+								.unwrap()
+						)
 					);
 				}
 

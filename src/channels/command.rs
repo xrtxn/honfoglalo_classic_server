@@ -47,7 +47,7 @@ pub mod request {
 		#[serde(rename = "READY")]
 		PlayerReady,
 		#[serde(rename = "SELECT")]
-		SelectArea(AreaSelection)
+		SelectArea(AreaSelection),
 	}
 }
 
