@@ -33,7 +33,6 @@ impl Base {
 	}
 
 	pub fn serialize_full(bases: HashMap<PlayerNames, Base>) -> Result<String, anyhow::Error> {
-		dbg!(&bases);
 		// later this may not be 38 for different countries
 		let mut serialized = String::with_capacity(6);
 		for i in 1..4 {
@@ -163,11 +162,11 @@ impl Area {
 	pub async fn get_full(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<HashMap<County, Area>, RedisError> {
+	) -> Result<HashMap<County, Area>, anyhow::Error> {
 		let res: String = tmppool
 			.hget(format!("games:{}:triviador_state", game_id), "area_num")
 			.await?;
-		let rest = Self::deserialize_full(res).unwrap();
+		let rest = Self::deserialize_full(res)?;
 		Ok(rest)
 	}
 
@@ -210,7 +209,7 @@ impl Area {
 		tmppool: &RedisPool,
 		game_id: u32,
 		values: (County, Area),
-	) -> Result<Option<Area>, RedisError> {
+	) -> Result<Option<Area>, anyhow::Error> {
 		{
 			let mut full = Self::get_full(tmppool, game_id).await?;
 			// return the replaced area info
@@ -265,7 +264,10 @@ pub struct TriviadorGame {
 }
 
 impl TriviadorGame {
-	pub async fn new_game(tmppool: &RedisPool, game_id: u32) -> Result<TriviadorGame, RedisError> {
+	pub async fn new_game(
+		tmppool: &RedisPool,
+		game_id: u32,
+	) -> Result<TriviadorGame, anyhow::Error> {
 		let game = TriviadorGame {
 			state: TriviadorState {
 				map_name: "MAP_WD".to_string(),
@@ -315,7 +317,7 @@ impl TriviadorGame {
 		tmppool: &RedisPool,
 		game_id: u32,
 		game: TriviadorGame,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		{
 			let mut res = TriviadorState::set_triviador_state(tmppool, game_id, game.state).await?;
 			res += PlayerInfo::set_info(tmppool, game_id, game.players).await?;
@@ -328,7 +330,7 @@ impl TriviadorGame {
 	pub(crate) async fn get_triviador(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<TriviadorGame, RedisError> {
+	) -> Result<TriviadorGame, anyhow::Error> {
 		let _: HashMap<String, String> = tmppool.hgetall(format!("games:{}", game_id)).await?;
 		let state = TriviadorState::get_triviador_state(tmppool, game_id).await?;
 		let players = PlayerInfo::get_info(tmppool, game_id).await?;
@@ -340,7 +342,7 @@ impl TriviadorGame {
 		})
 	}
 
-	pub async fn announcement(tmppool: &RedisPool, game_id: u32) -> Result<u8, RedisError> {
+	pub async fn announcement(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
 		let res = GameState::set_gamestate(
 			tmppool,
 			game_id,
@@ -354,7 +356,7 @@ impl TriviadorGame {
 		.await?;
 		Ok(res)
 	}
-	pub async fn choose_area(tmppool: &RedisPool, game_id: u32) -> Result<u8, RedisError> {
+	pub async fn choose_area(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
 		let mut res: u8 = GameState::set_gamestate(
 			tmppool,
 			game_id,
@@ -438,7 +440,7 @@ impl TriviadorState {
 		tmppool: &RedisPool,
 		game_id: u32,
 		state: TriviadorState,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		let mut res: u8 = tmppool
 			.hset(
 				format!("games:{}:triviador_state", game_id),
@@ -496,7 +498,7 @@ impl TriviadorState {
 	pub(crate) async fn get_triviador_state(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<TriviadorState, RedisError> {
+	) -> Result<TriviadorState, anyhow::Error> {
 		let res: HashMap<String, String> = tmppool
 			.hgetall(format!("games:{}:triviador_state", game_id))
 			.await?;
@@ -532,7 +534,7 @@ pub struct AvailableAreas {
 }
 
 impl AvailableAreas {
-	pub async fn set_empty(tmppool: &RedisPool, game_id: u32) -> Result<u8, RedisError> {
+	pub async fn set_empty(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
 		let res: u8 = tmppool
 			// todo delete old!
 			.lpush(
@@ -547,7 +549,7 @@ impl AvailableAreas {
 		tmppool: &RedisPool,
 		game_id: u32,
 		areas: AvailableAreas,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		{
 			let vec: Vec<String> = if areas.areas.is_empty() {
 				vec!["".to_string()]
@@ -575,7 +577,7 @@ impl AvailableAreas {
 	pub(crate) async fn get_available(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<Option<AvailableAreas>, RedisError> {
+	) -> Result<Option<AvailableAreas>, anyhow::Error> {
 		let test_areas: Vec<String> = tmppool
 			.lrange(
 				format!("games:{}:triviador_state:available_areas", game_id),
@@ -603,7 +605,7 @@ impl AvailableAreas {
 		tmppool: &RedisPool,
 		game_id: u32,
 		county: County,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		let res: u8 = tmppool
 			.lrem(
 				format!("games:{}:triviador_state:available_areas", game_id),
@@ -676,7 +678,7 @@ impl PlayerInfo {
 		tmppool: &RedisPool,
 		game_id: u32,
 		info: PlayerInfo,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		{
 			let res: u8 = tmppool
 				.hset(
@@ -701,7 +703,7 @@ impl PlayerInfo {
 	pub(crate) async fn get_info(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<PlayerInfo, RedisError> {
+	) -> Result<PlayerInfo, anyhow::Error> {
 		let res: HashMap<String, String> =
 			tmppool.hgetall(format!("games:{}:info", game_id)).await?;
 		let info = PlayerInfo {
@@ -744,7 +746,7 @@ pub mod county {
 			tmppool: &RedisPool,
 			game_id: u32,
 			cmd: Cmd,
-		) -> Result<u8, RedisError> {
+		) -> Result<u8, anyhow::Error> {
 			{
 				let mut res: u8 = tmppool
 					.hset(
@@ -765,7 +767,7 @@ pub mod county {
 		pub(crate) async fn get_cmd(
 			tmppool: &RedisPool,
 			game_id: u32,
-		) -> Result<Option<Cmd>, RedisError> {
+		) -> Result<Option<Cmd>, anyhow::Error> {
 			// todo account for none
 			let res: HashMap<String, String> =
 				tmppool.hgetall(format!("games:{}:cmd", game_id)).await?;
@@ -782,6 +784,14 @@ pub mod county {
 				available,
 				cmd_timeout: res.get("cmd_timeout").unwrap().parse()?,
 			}))
+		}
+
+		pub(crate) async fn clear_cmd(
+			tmppool: &RedisPool,
+			game_id: u32,
+		) -> Result<u8, anyhow::Error> {
+			let res: u8 = tmppool.del(format!("games:{}:cmd", game_id)).await?;
+			Ok(res)
 		}
 	}
 
@@ -934,7 +944,7 @@ impl GameState {
 		tmppool: &RedisPool,
 		game_id: u32,
 		state: GameState,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		let res: u8 = tmppool
 			.hset(
 				format!("games:{}:triviador_state:game_state", game_id),
@@ -951,7 +961,7 @@ impl GameState {
 	pub(crate) async fn get_gamestate(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<GameState, RedisError> {
+	) -> Result<GameState, anyhow::Error> {
 		let res: HashMap<String, i32> = tmppool
 			.hgetall(format!("games:{}:triviador_state:game_state", game_id))
 			.await?;
@@ -987,7 +997,7 @@ impl RoundInfo {
 		tmppool: &RedisPool,
 		game_id: u32,
 		round_info: RoundInfo,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		let res: u8 = tmppool
 			.hset(
 				format!("games:{}:triviador_state:round_info", game_id),
@@ -1003,7 +1013,7 @@ impl RoundInfo {
 	pub(crate) async fn get_roundinfo(
 		tmppool: &RedisPool,
 		game_id: u32,
-	) -> Result<RoundInfo, RedisError> {
+	) -> Result<RoundInfo, anyhow::Error> {
 		let res: HashMap<String, i32> = tmppool
 			.hgetall(format!("games:{}:triviador_state:round_info", game_id))
 			.await?;
@@ -1037,7 +1047,7 @@ impl ShieldMission {
 		tmppool: &RedisPool,
 		game_id: u32,
 		mission: ShieldMission,
-	) -> Result<u8, RedisError> {
+	) -> Result<u8, anyhow::Error> {
 		let res: u8 = tmppool
 			.hset(
 				format!("games:{}:triviador_state:shield_mission", game_id),
@@ -1054,7 +1064,7 @@ impl ShieldMission {
 		tmppool: &RedisPool,
 		game_id: u32,
 		// todo this may be simplified
-	) -> Result<Option<ShieldMission>, RedisError> {
+	) -> Result<Option<ShieldMission>, anyhow::Error> {
 		let res: HashMap<String, i32> = tmppool
 			.hgetall(format!("games:{}:triviador_state:shield_mission", game_id))
 			.await?;

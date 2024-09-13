@@ -1,3 +1,5 @@
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Router};
 use fred::prelude::*;
@@ -31,8 +33,7 @@ impl App {
 		Ok(Self { db, tmp_db })
 	}
 
-	pub async fn serve(self) -> Result<(), anyhow::Error> {
-		// let single_player_state = SPState::new(Mutex::new(SinglePlayerState::new()));
+	pub async fn serve(self) -> Result<(), AppError> {
 		let app = Router::new()
 			.route("/mobil.php", post(mobil))
 			.route("/dat/help.json", get(help))
@@ -44,7 +45,31 @@ impl App {
 			.layer(Extension(self.db))
 			.layer(Extension(self.tmp_db));
 		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
-		axum::serve(listener, app.into_make_service()).await?;
+		axum::serve(listener, app.into_make_service()).await.map_err(|e| AppError::from(e))?;
 		Ok(())
+	}
+}
+
+#[derive(Debug)]
+pub(crate) struct AppError(anyhow::Error);
+
+impl IntoResponse for AppError {
+	fn into_response(self) -> Response {
+		(
+			StatusCode::INTERNAL_SERVER_ERROR,
+			format!("Something went wrong: {}", self.0),
+		)
+			.into_response()
+	}
+}
+
+// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
+// `Result<_, AppError>`. That way you don't need to do that manually.
+impl<E> From<E> for AppError
+where
+	E: Into<anyhow::Error>,
+{
+	fn from(err: E) -> Self {
+		Self(err.into())
 	}
 }
