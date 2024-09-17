@@ -45,7 +45,9 @@ impl App {
 			.layer(Extension(self.db))
 			.layer(Extension(self.tmp_db));
 		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
-		axum::serve(listener, app.into_make_service()).await.map_err(|e| AppError::from(e))?;
+		axum::serve(listener, app.into_make_service())
+			.await
+			.map_err(|e| AppError::from(e))?;
 		Ok(())
 	}
 }

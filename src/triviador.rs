@@ -1,11 +1,14 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::str::FromStr;
 
 use anyhow::bail;
 use fred::clients::RedisPool;
 use fred::prelude::*;
+use futures::TryFutureExt;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
+use tokio::try_join;
 
 use crate::triviador::county::*;
 use crate::utils::split_string_n;
@@ -264,6 +267,7 @@ pub struct TriviadorGame {
 }
 
 impl TriviadorGame {
+	/// Creates a new triviador game, returns it and also creates it into redis
 	pub async fn new_game(
 		tmppool: &RedisPool,
 		game_id: u32,
@@ -295,12 +299,45 @@ impl TriviadorGame {
 				war: None,
 			},
 			players: PlayerInfo {
-				p1: "xrtxn".to_string(),
-				p2: "null".to_string(),
-				p3: "null".to_string(),
-				pd1: "-1,14000,15,1,0,ar,1,,0".to_string(),
-				pd2: "-1,14000,15,1,0,hu,1,,8".to_string(),
-				pd3: "-1,14000,15,1,0,ar,1,,6".to_string(),
+				p1_name: "xrtxn".to_string(),
+				p2_name: "null".to_string(),
+				p3_name: "null".to_string(),
+				pd1: GamePlayerData {
+					id: 1,
+					xp_points: 14000,
+					xp_level: 15,
+					game_count: 1,
+					game_count_sr: 0,
+					country_id: "hu".to_string(),
+					castle_level: 1,
+					custom_avatar: false,
+					soldier: 0,
+					act_league: 1,
+				},
+				pd2: GamePlayerData {
+					id: -1,
+					xp_points: 14000,
+					xp_level: 15,
+					game_count: 1,
+					game_count_sr: 0,
+					country_id: "hu".to_string(),
+					castle_level: 1,
+					custom_avatar: false,
+					soldier: 8,
+					act_league: 1,
+				},
+				pd3: GamePlayerData {
+					id: -1,
+					xp_points: 14000,
+					xp_level: 15,
+					game_count: 1,
+					game_count_sr: 0,
+					country_id: "hu".to_string(),
+					castle_level: 1,
+					custom_avatar: false,
+					soldier: 6,
+					act_league: 1,
+				},
 				you: "1,2,3".to_string(),
 				game_id: "1".to_string(),
 				room: "1".to_string(),
@@ -313,6 +350,7 @@ impl TriviadorGame {
 		Ok(game)
 	}
 
+	/// Sets a triviador game argument into redis
 	pub async fn set_triviador(
 		tmppool: &RedisPool,
 		game_id: u32,
@@ -327,6 +365,8 @@ impl TriviadorGame {
 			Ok(res)
 		}
 	}
+
+	/// Gets a triviador game argument from redis
 	pub(crate) async fn get_triviador(
 		tmppool: &RedisPool,
 		game_id: u32,
@@ -342,6 +382,7 @@ impl TriviadorGame {
 		})
 	}
 
+	/// Modifies a triviador game's state to announcement stage
 	pub async fn announcement(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
 		let res = GameState::set_gamestate(
 			tmppool,
@@ -356,6 +397,8 @@ impl TriviadorGame {
 		.await?;
 		Ok(res)
 	}
+
+	/// Modifies a triviador game's state to area choosing stage
 	pub async fn choose_area(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
 		let mut res: u8 = GameState::set_gamestate(
 			tmppool,
@@ -550,29 +593,27 @@ impl AvailableAreas {
 		game_id: u32,
 		areas: AvailableAreas,
 	) -> Result<u8, anyhow::Error> {
-		{
-			let vec: Vec<String> = if areas.areas.is_empty() {
-				vec!["".to_string()]
-			} else {
-				areas
-					.areas
-					.iter()
-					.map(|county| county.to_string())
-					.collect::<Vec<String>>()
-			};
-			// this may be dangerous
-			tmppool
-				.del::<u8, _>(format!("games:{}:triviador_state:available_areas", game_id))
-				.await?;
+		let vec: Vec<String> = if areas.areas.is_empty() {
+			vec!["".to_string()]
+		} else {
+			areas
+				.areas
+				.iter()
+				.map(|county| county.to_string())
+				.collect::<Vec<String>>()
+		};
+		// this may be dangerous
+		tmppool
+			.del::<u8, _>(format!("games:{}:triviador_state:available_areas", game_id))
+			.await?;
 
-			let res = tmppool
-				.rpush::<u8, _, _>(
-					format!("games:{}:triviador_state:available_areas", game_id),
-					vec,
-				)
-				.await?;
-			Ok(res)
-		}
+		let res = tmppool
+			.rpush::<u8, _, _>(
+				format!("games:{}:triviador_state:available_areas", game_id),
+				vec,
+			)
+			.await?;
+		Ok(res)
 	}
 	pub(crate) async fn get_available(
 		tmppool: &RedisPool,
@@ -651,17 +692,17 @@ pub struct AreaSelection {
 #[derive(Serialize, Debug, Clone)]
 pub struct PlayerInfo {
 	#[serde(rename = "@P1")]
-	pub p1: String,
+	pub p1_name: String,
 	#[serde(rename = "@P2")]
-	pub p2: String,
+	pub p2_name: String,
 	#[serde(rename = "@P3")]
-	pub p3: String,
+	pub p3_name: String,
 	#[serde(rename = "@PD1")]
-	pub pd1: String,
+	pub pd1: GamePlayerData,
 	#[serde(rename = "@PD2")]
-	pub pd2: String,
+	pub pd2: GamePlayerData,
 	#[serde(rename = "@PD3")]
-	pub pd3: String,
+	pub pd3: GamePlayerData,
 	#[serde(rename = "@YOU")]
 	pub you: String,
 	#[serde(rename = "@GAMEID")]
@@ -673,6 +714,130 @@ pub struct PlayerInfo {
 	pub rules: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct GamePlayerData {
+	pub id: i32,
+	pub xp_points: i32,
+	pub xp_level: i16,
+	pub game_count: i32,
+	// meaning?
+	pub game_count_sr: i32,
+	pub country_id: String,
+	pub castle_level: i16,
+	// this can be not existent with ,
+	pub custom_avatar: bool,
+	pub soldier: i16,
+	pub act_league: i16,
+}
+
+impl GamePlayerData {
+	pub async fn set_game_player_data(
+		tmppool: &RedisPool,
+		game_id: u32,
+		game_player_number: i32,
+		game_player_data: GamePlayerData,
+	) -> Result<u8, anyhow::Error> {
+		let res: u8 = tmppool
+			.hset(
+				format!("games:{}:info", game_id),
+				[(
+					format!("pd{}", game_player_number),
+					game_player_data.to_string(),
+				)],
+			)
+			.await?;
+		Ok(res)
+	}
+	pub async fn get_game_player_data(
+		tmppool: &RedisPool,
+		game_id: u32,
+		player_id: i32,
+	) -> Result<GamePlayerData, anyhow::Error> {
+		let res: String = tmppool
+			.hget(
+				format!("games:{}:info", game_id),
+				format!("pd{}", player_id),
+			)
+			.await?;
+		let res: GamePlayerData = res.parse()?;
+		Ok(res)
+	}
+}
+
+impl FromStr for GamePlayerData {
+	type Err = anyhow::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let parts: Vec<&str> = s.split(',').collect();
+
+		let id = parts[0].parse::<i32>()?;
+		let xp_points = parts[1].parse::<i32>()?;
+		let xp_level = parts[2].parse::<i16>()?;
+		let game_count = parts[3].parse::<i32>()?;
+		let game_count_sr = parts[4].parse::<i32>()?;
+		let country_id = parts[5].to_string();
+		let castle_level = parts[6].parse::<i16>()?;
+
+		// Handle custom_avatar as an optional boolean
+		let custom_avatar = match parts[7] {
+			"" => false, // Empty string represents a false value
+			"true" => true,
+			"false" => false,
+			_ => bail!("Invalid custom_avatar value"),
+		};
+
+		let soldier = parts[8].parse::<i16>()?;
+		let act_league = parts[9].parse::<i16>()?;
+
+		Ok(GamePlayerData {
+			id,
+			xp_points,
+			xp_level,
+			game_count,
+			game_count_sr,
+			country_id,
+			castle_level,
+			custom_avatar,
+			soldier,
+			act_league,
+		})
+	}
+}
+
+impl fmt::Display for GamePlayerData {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let avatar = if self.custom_avatar {
+			"todo_this_is_a_custom_avatar"
+		} else {
+			""
+		};
+
+		let str = format!(
+			"{},{},{},{},{},{},{},{},{},{}",
+			self.id,
+			self.xp_points,
+			self.xp_level,
+			self.game_count,
+			self.game_count_sr,
+			self.country_id,
+			self.castle_level,
+			avatar,
+			self.soldier,
+			self.act_league
+		);
+		write!(f, "{}", str)
+	}
+}
+
+impl Serialize for GamePlayerData {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(self.to_string().as_str())
+	}
+}
+
 impl PlayerInfo {
 	pub async fn set_info(
 		tmppool: &RedisPool,
@@ -680,45 +845,58 @@ impl PlayerInfo {
 		info: PlayerInfo,
 	) -> Result<u8, anyhow::Error> {
 		{
-			let res: u8 = tmppool
-				.hset(
-					format!("games:{}:info", game_id),
-					[
-						("p1", info.p1),
-						("p2", info.p2),
-						("p3", info.p3),
-						("pd1", info.pd1),
-						("pd2", info.pd2),
-						("pd3", info.pd3),
-						("you", info.you),
-						("game_id", info.game_id),
-						("room", info.room),
-						("rules", info.rules),
-					],
-				)
-				.await?;
-			Ok(res)
+			let gpd_one_fut = GamePlayerData::set_game_player_data(tmppool, game_id, 1, info.pd1);
+			let gpd_two_fut = GamePlayerData::set_game_player_data(tmppool, game_id, 2, info.pd2);
+			let gpd_three_fut = GamePlayerData::set_game_player_data(tmppool, game_id, 3, info.pd3);
+			let info_fut = tmppool.hset::<u8, _, _>(
+				format!("games:{}:info", game_id),
+				[
+					("p1_name", info.p1_name),
+					("p2_name", info.p2_name),
+					("p3_name", info.p3_name),
+					("you", info.you),
+					("game_id", info.game_id),
+					("room", info.room),
+					("rules", info.rules),
+				],
+			);
+			let mut modified = 0;
+			let res = try_join!(
+				gpd_one_fut,
+				gpd_two_fut,
+				gpd_three_fut,
+				info_fut.map_err(anyhow::Error::from)
+			);
+			match res {
+				Ok(res) => {
+					modified += res.0;
+					modified += res.1;
+					modified += res.2;
+					modified += res.3;
+				}
+				Err(err) => bail!(err),
+			}
+			Ok(modified)
 		}
 	}
-	pub(crate) async fn get_info(
-		tmppool: &RedisPool,
-		game_id: u32,
-	) -> Result<PlayerInfo, anyhow::Error> {
+	pub async fn get_info(tmppool: &RedisPool, game_id: u32) -> Result<PlayerInfo, anyhow::Error> {
 		let res: HashMap<String, String> =
 			tmppool.hgetall(format!("games:{}:info", game_id)).await?;
-		let info = PlayerInfo {
-			p1: res.get("p1").unwrap().to_string(),
-			p2: res.get("p2").unwrap().to_string(),
-			p3: res.get("p3").unwrap().to_string(),
-			pd1: res.get("pd1").unwrap().to_string(),
-			pd2: res.get("pd2").unwrap().to_string(),
-			pd3: res.get("pd3").unwrap().to_string(),
+		let pd1 = GamePlayerData::get_game_player_data(tmppool, game_id, 1).await?;
+		let pd2 = GamePlayerData::get_game_player_data(tmppool, game_id, 2).await?;
+		let pd3 = GamePlayerData::get_game_player_data(tmppool, game_id, 3).await?;
+		Ok(PlayerInfo {
+			p1_name: res.get("p1_name").unwrap().to_string(),
+			p2_name: res.get("p2_name").unwrap().to_string(),
+			p3_name: res.get("p3_name").unwrap().to_string(),
+			pd1,
+			pd2,
+			pd3,
 			you: res.get("you").unwrap().to_string(),
 			game_id: res.get("game_id").unwrap().to_string(),
 			room: res.get("room").unwrap().to_string(),
 			rules: res.get("rules").unwrap().to_string(),
-		};
-		Ok(info)
+		})
 	}
 }
 

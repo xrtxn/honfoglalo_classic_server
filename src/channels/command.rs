@@ -45,7 +45,7 @@ pub mod request {
 		#[serde(rename = "STARTSEPROOM")]
 		StartTriviador(StartFriendlyRoom),
 		#[serde(rename = "READY")]
-		PlayerReady,
+		GamePlayerReady,
 		#[serde(rename = "SELECT")]
 		SelectArea(AreaSelection),
 	}
@@ -54,6 +54,8 @@ pub mod request {
 pub mod response {
 	use serde::{Deserialize, Serialize};
 	use serde_with::skip_serializing_none;
+
+	use crate::channels::ErrorResponse;
 
 	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
@@ -79,6 +81,10 @@ pub mod response {
 				},
 				message: None,
 			}
+		}
+
+		pub fn error() -> ErrorResponse {
+			ErrorResponse {}
 		}
 	}
 

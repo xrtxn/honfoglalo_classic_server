@@ -9,6 +9,10 @@ pub mod command;
 pub mod listen;
 
 #[derive(Serialize, Deserialize, Debug)]
+#[serde(rename = "ERROR")]
+pub struct ErrorResponse {}
+
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "CH")]
 pub enum ChannelType {
 	#[serde(rename = "C")]

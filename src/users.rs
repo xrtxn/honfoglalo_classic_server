@@ -5,8 +5,8 @@ impl User {
 	pub async fn reset(tmppool: &RedisPool, id: i32) -> Result<(), anyhow::Error> {
 		// todo reset properly
 		let _: String = tmppool.flushall(false).await?;
-		tmppool
-			.hset::<u8, _, _>(
+		let _: u8 = tmppool
+			.hset(
 				format!("users:{}:login_state", id),
 				[("is_listen_ready", "false"), ("is_logged_in", "false")],
 			)
@@ -25,7 +25,7 @@ impl User {
 			.await?;
 		Ok(())
 	}
-	pub async fn get_next_listen(tmppool: &RedisPool, id: i32) -> Option<String> {
+	pub async fn pop_listen_queue(tmppool: &RedisPool, id: i32) -> Option<String> {
 		let res: Option<String> = tmppool
 			.lpop(format!("users:{}:listen_queue", id), Some(1))
 			.await
@@ -44,18 +44,26 @@ impl User {
 			.await?;
 		Ok(res.parse::<bool>()?)
 	}
-	pub async fn set_listen_ready(
+	pub async fn set_listen_state(
 		tmppool: &RedisPool,
 		id: i32,
 		is_ready: bool,
-	) -> Result<bool, anyhow::Error> {
-		tmppool
-			.hset::<bool, _, _>(
+	) -> Result<(), anyhow::Error> {
+		let _: u8 = tmppool
+			.hset(
 				format!("users:{}:login_state", id),
 				("is_listen_ready", is_ready),
 			)
-			.await
-			.map_err(|e| anyhow::anyhow!(e))
+			.await?;
+		Ok(())
+	}
+
+	pub async fn get_listen_state(tmppool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
+		let res: bool = tmppool
+			.hget(format!("users:{}:login_state", id), "is_listen_ready")
+			.await?;
+
+		Ok(res)
 	}
 
 	pub async fn get_is_logged_in(tmppool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {

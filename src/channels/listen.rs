@@ -51,7 +51,7 @@ pub mod response {
 
 	#[derive(Serialize, Deserialize, Debug)]
 	#[serde(rename = "L")]
-	pub struct ListenResponseHeader {
+	pub(crate) struct ListenResponseHeader {
 		#[serde(rename = "@CID")]
 		pub client_id: String,
 		#[serde(rename = "@MN")]
@@ -62,7 +62,7 @@ pub mod response {
 
 	#[derive(Serialize, Deserialize, Debug)]
 	#[serde(untagged)]
-	pub enum ListenResponseType {
+	pub(crate) enum ListenResponseType {
 		VillageSetup(VillageSetupRoot),
 		ActiveSepRoom(ActiveSepRoom),
 	}
