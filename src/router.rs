@@ -5,6 +5,7 @@ use anyhow::anyhow;
 use axum::extract::Query;
 use axum::{Extension, Json};
 use fred::clients::RedisPool;
+use fred::prelude::*;
 use sqlx::PgPool;
 use tokio::try_join;
 use tracing::warn;
@@ -16,7 +17,7 @@ use crate::channels::command::response::CommandResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
-use crate::channels::ChannelType;
+use crate::channels::{ChannelType, ErrorResponse};
 use crate::emulator::Emulator;
 use crate::menu::friend_list::external_data::ExternalFriendsRoot;
 use crate::menu::friend_list::friends::FriendResponse;
@@ -214,8 +215,16 @@ pub async fn game(
 					VillageSetup(VillageSetupRoot::emulate()),
 				))?);
 			}
-			loop {
-				if !users::User::is_listen_empty(&tmp_db, PLAYER_ID).await? {
+			let subscriber = Builder::default_centralized().build()?;
+			subscriber.init().await?;
+			subscriber
+				.psubscribe(format!("__key*__:users:{}:listen_queue", PLAYER_ID))
+				.await?;
+			let mut keyspace_rx = subscriber.keyspace_event_rx();
+			while let Ok(event) = keyspace_rx.recv().await {
+				users::User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
+
+				if event.operation == "rpush" {
 					let next_listen = match users::User::pop_listen_queue(&tmp_db, PLAYER_ID).await
 					{
 						None => {
@@ -235,9 +244,9 @@ pub async fn game(
 						remove_root_tag(next_listen)
 					));
 				}
-
-				tokio::time::sleep(Duration::from_millis(1000)).await;
 			}
+			// this theroetically never happens but this makes the compiler happy
+			Ok(modified_xml_response(&ErrorResponse {})?)
 		}
 	}
 }
