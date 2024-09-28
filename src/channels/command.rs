@@ -55,7 +55,7 @@ pub mod response {
 	use serde::{Deserialize, Serialize};
 	use serde_with::skip_serializing_none;
 
-	use crate::channels::ErrorResponse;
+	use crate::channels::ChannelErrorResponse;
 
 	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
@@ -83,8 +83,8 @@ pub mod response {
 			}
 		}
 
-		pub fn error() -> ErrorResponse {
-			ErrorResponse {}
+		pub fn error() -> ChannelErrorResponse {
+			ChannelErrorResponse {}
 		}
 	}
 

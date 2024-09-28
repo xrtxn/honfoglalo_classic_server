@@ -10,7 +10,7 @@ pub mod listen;
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "ERROR")]
-pub struct ErrorResponse {}
+pub struct ChannelErrorResponse {}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "CH")]

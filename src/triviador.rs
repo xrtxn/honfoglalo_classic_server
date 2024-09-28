@@ -9,6 +9,7 @@ use futures::TryFutureExt;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
 use tokio::try_join;
+use tracing::warn;
 
 use crate::triviador::county::*;
 use crate::utils::split_string_n;
@@ -23,7 +24,7 @@ struct PlayerData {
 	selection: u8,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 struct Base {
 	base_id: u8,
 	towers_destroyed: u8,
@@ -35,18 +36,6 @@ impl Base {
 		crate::utils::to_hex_with_length(&[self.base_id + base_part], 2)
 	}
 
-	pub fn serialize_full(bases: HashMap<PlayerNames, Base>) -> Result<String, anyhow::Error> {
-		// later this may not be 38 for different countries
-		let mut serialized = String::with_capacity(6);
-		for i in 1..4 {
-			match bases.get(&PlayerNames::from(i)) {
-				None => serialized.push_str("00"),
-				Some(base) => serialized.push_str(&base.serialize_to_hex()),
-			}
-		}
-		Ok(serialized)
-	}
-
 	pub fn deserialize_from_hex(hex: &str) -> Result<Self, anyhow::Error> {
 		let value = u8::from_str_radix(hex, 16)?;
 		let towers_destroyed = value >> 6;
@@ -55,24 +44,6 @@ impl Base {
 			base_id,
 			towers_destroyed,
 		})
-	}
-
-	pub fn deserialize_full(s: &str) -> Result<HashMap<PlayerNames, Base>, anyhow::Error> {
-		let vals = split_string_n(s, 2);
-		let mut rest: HashMap<PlayerNames, Base> = HashMap::with_capacity(3);
-		for (i, base_str) in vals.iter().enumerate() {
-			rest.insert(
-				// increase by 1 because we don't have Player0
-				PlayerNames::from(i as u8 + 1),
-				Base::deserialize_from_hex(base_str)?,
-			);
-		}
-		Ok(rest)
-	}
-
-	pub fn new_tower_destroyed(&mut self) {
-		todo!();
-		self.towers_destroyed += 1;
 	}
 }
 
@@ -85,11 +56,74 @@ impl Serialize for Base {
 	}
 }
 
-#[derive(Hash, Eq, PartialEq, Debug)]
+#[derive(Clone, Debug, PartialEq)]
+struct Bases {
+	every_base: HashMap<PlayerNames, Base>,
+}
+
+impl Bases {
+	pub async fn get_redis(tmppool: &RedisPool, game_id: u32) -> Result<Self, anyhow::Error> {
+		let res: String = tmppool
+			.hget(format!("games:{}:triviador_state", game_id), "base_info")
+			.await?;
+		let rest = Self::deserialize_full(&res)?;
+		Ok(rest)
+	}
+
+	pub async fn set_redis(
+		tmppool: &RedisPool,
+		game_id: u32,
+		bases: Bases,
+	) -> Result<u8, anyhow::Error> {
+		let res: u8 = tmppool
+			.hset(
+				format!("games:{}:triviador_state", game_id),
+				[("base_info", Bases::serialize_full(&bases)?)],
+			)
+			.await?;
+		Ok(res)
+	}
+
+	pub fn serialize_full(bases: &Bases) -> Result<String, anyhow::Error> {
+		// later this may not be 38 for different countries
+		let mut serialized = String::with_capacity(6);
+		for i in 1..4 {
+			match bases.every_base.get(&PlayerNames::from(i)) {
+				None => serialized.push_str("00"),
+				Some(base) => serialized.push_str(&base.serialize_to_hex()),
+			}
+		}
+		Ok(serialized)
+	}
+
+	pub fn deserialize_full(s: &str) -> Result<Self, anyhow::Error> {
+		let vals = split_string_n(s, 2);
+		let mut rest: HashMap<PlayerNames, Base> = HashMap::with_capacity(3);
+		for (i, base_str) in vals.iter().enumerate() {
+			rest.insert(
+				// increase by 1 because we don't have Player0
+				PlayerNames::from(i as u8 + 1),
+				Base::deserialize_from_hex(base_str)?,
+			);
+		}
+		Ok(Self { every_base: rest })
+	}
+}
+
+impl Serialize for Bases {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(&Bases::serialize_full(self).unwrap())
+	}
+}
+
+#[derive(Hash, Eq, PartialEq, Clone, Debug)]
 enum PlayerNames {
-	Player1,
-	Player2,
-	Player3,
+	Player1 = 1,
+	Player2 = 2,
+	Player3 = 3,
 }
 impl From<u8> for PlayerNames {
 	fn from(value: u8) -> Self {
@@ -162,7 +196,7 @@ impl Area {
 		Ok(rest)
 	}
 
-	pub async fn get_full(
+	pub async fn get_redis(
 		tmppool: &RedisPool,
 		game_id: u32,
 	) -> Result<HashMap<County, Area>, anyhow::Error> {
@@ -214,7 +248,7 @@ impl Area {
 		values: (County, Area),
 	) -> Result<Option<Area>, anyhow::Error> {
 		{
-			let mut full = Self::get_full(tmppool, game_id).await?;
+			let mut full = Self::get_redis(tmppool, game_id).await?;
 			// return the replaced area info
 			Ok(full.insert(values.0, values.1))
 		}
@@ -288,7 +322,10 @@ impl TriviadorGame {
 				players_chat_state: "0,0,0".to_string(),
 				players_points: "0,0,0".to_string(),
 				selection: "000000".to_string(),
-				base_info: "000000".to_string(),
+				// todo replace this
+				base_info: Bases {
+					every_base: HashMap::new(),
+				},
 				areas_info: Area::new(),
 				available_areas: Some(AvailableAreas {
 					areas: HashSet::new(),
@@ -356,17 +393,19 @@ impl TriviadorGame {
 		game_id: u32,
 		game: TriviadorGame,
 	) -> Result<u8, anyhow::Error> {
-		{
-			let mut res = TriviadorState::set_triviador_state(tmppool, game_id, game.state).await?;
-			res += PlayerInfo::set_info(tmppool, game_id, game.players).await?;
-			if game.cmd.is_some() {
-				res += Cmd::set_cmd(tmppool, game_id, game.cmd.unwrap()).await?;
-			}
-			Ok(res)
+		let mut res = TriviadorState::set_triviador_state(tmppool, game_id, game.state).await?;
+		res += PlayerInfo::set_info(tmppool, game_id, game.players).await?;
+		if game.cmd.is_some() {
+			warn!("Setting triviador game CMD is NOT NULL, but it won't be set!")
 		}
+		// if game.cmd.is_some() {
+		// 	res += Cmd::set_player_cmd(tmppool, player_id, game.cmd.unwrap()).await?;
+		// }
+		Ok(res)
 	}
 
-	/// Gets a triviador game argument from redis
+	/// Gets a general triviador game argument from redis
+	/// The cmd is always empty!
 	pub(crate) async fn get_triviador(
 		tmppool: &RedisPool,
 		game_id: u32,
@@ -374,16 +413,20 @@ impl TriviadorGame {
 		let _: HashMap<String, String> = tmppool.hgetall(format!("games:{}", game_id)).await?;
 		let state = TriviadorState::get_triviador_state(tmppool, game_id).await?;
 		let players = PlayerInfo::get_info(tmppool, game_id).await?;
-		let cmd = Cmd::get_cmd(tmppool, game_id).await?;
+		// let cmd = Cmd::get_player_cmd(tmppool, game_id).await?;
 		Ok(TriviadorGame {
 			state,
 			players,
-			cmd,
+			cmd: None,
 		})
 	}
 
 	/// Modifies a triviador game's state to announcement stage
-	pub async fn announcement(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
+	/// Sets the game's state to 1
+	pub async fn announcement_stage(
+		tmppool: &RedisPool,
+		game_id: u32,
+	) -> Result<u8, anyhow::Error> {
 		let res = GameState::set_gamestate(
 			tmppool,
 			game_id,
@@ -399,7 +442,13 @@ impl TriviadorGame {
 	}
 
 	/// Modifies a triviador game's state to area choosing stage
-	pub async fn choose_area(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
+	///
+	/// Sets the game's `phase` to 1, `roundinfo` to {`lpnum`: 1, `next_player`: 1}, available areas
+	/// to all counties
+	pub async fn select_bases_stage(
+		tmppool: &RedisPool,
+		game_id: u32,
+	) -> Result<u8, anyhow::Error> {
 		let mut res: u8 = GameState::set_gamestate(
 			tmppool,
 			game_id,
@@ -411,7 +460,6 @@ impl TriviadorGame {
 		)
 		.await?;
 
-		// triviador.state.game_state.phase = 1;
 		res += RoundInfo::set_roundinfo(
 			tmppool,
 			game_id,
@@ -424,15 +472,73 @@ impl TriviadorGame {
 
 		AvailableAreas::set_available(tmppool, game_id, AvailableAreas::all_counties()).await?;
 
-		// end
-		res += Cmd::set_cmd(
+		Ok(res)
+	}
+
+	pub async fn base_selected_stage(
+		tmppool: &RedisPool,
+		game_id: u32,
+	) -> Result<u8, anyhow::Error> {
+		let res: u8 = GameState::set_gamestate(
 			tmppool,
 			game_id,
-			Cmd {
-				command: "SELECT".to_string(),
-				available: Some(AvailableAreas::all_counties()),
-				cmd_timeout: 10,
+			GameState {
+				state: 1,
+				gameround: 0,
+				phase: 3,
 			},
+		)
+		.await?;
+
+		Ok(res)
+	}
+
+	pub async fn new_base_selected(
+		tmppool: &RedisPool,
+		game_id: u32,
+		selected_area: u8,
+		game_player_id: u8,
+	) -> Result<u8, anyhow::Error> {
+		AvailableAreas::pop_county(tmppool, game_id, County::from(selected_area)).await?;
+
+		let mut bases = Bases::get_redis(tmppool, game_id).await?;
+		bases.every_base.insert(
+			PlayerNames::from(game_player_id),
+			Base {
+				base_id: selected_area,
+				towers_destroyed: 0,
+			},
+		);
+
+		let _ = &Bases::set_redis(tmppool, game_id, bases).await?;
+		let mut areas = Area::get_redis(tmppool, game_id).await?;
+		areas.insert(
+			County::from(selected_area),
+			Area {
+				owner: game_player_id,
+				is_fortress: false,
+				value: AreaValue::_1000,
+			},
+		);
+		Area::set_redis(tmppool, game_id, Area::serialize_full(&areas)?).await?;
+		let res = TriviadorState::set_field(
+			tmppool,
+			game_id,
+			"selection",
+			&Bases::serialize_full(&Bases::get_redis(tmppool, game_id).await?)?,
+		)
+		.await?;
+		let scores = TriviadorState::get_field(tmppool, game_id, "players_points").await?;
+		let mut scores: Vec<u16> = scores
+			.split(',')
+			.map(|x| x.parse::<u16>().unwrap())
+			.collect();
+		scores[0] += 1000;
+		TriviadorState::set_field(
+			tmppool,
+			game_id,
+			"players_points",
+			&format!("{},{},{}", scores[0], scores[1], scores[2]),
 		)
 		.await?;
 		Ok(res)
@@ -460,7 +566,7 @@ pub(crate) struct TriviadorState {
 	#[serde(rename = "@SEL")]
 	pub selection: String,
 	#[serde(rename = "@B")]
-	pub base_info: String,
+	pub base_info: Bases,
 	#[serde(rename = "@A", serialize_with = "areas_full_seralizer")]
 	// used by: Math.floor(Util.StringVal(tag.A).length / 2);
 	pub areas_info: HashMap<County, Area>,
@@ -495,7 +601,7 @@ impl TriviadorState {
 					("players_chat_state", state.players_chat_state),
 					("players_points", state.players_points),
 					("selection", state.selection),
-					("base_info", state.base_info),
+					// ("base_info", state.base_info),
 					("area_num", Area::serialize_full(&state.areas_info).unwrap()),
 					// set available areas
 					("used_helps", state.used_helps),
@@ -508,6 +614,7 @@ impl TriviadorState {
 
 		res += GameState::set_gamestate(tmppool, game_id, state.game_state).await?;
 		res += RoundInfo::set_roundinfo(tmppool, game_id, state.round_info).await?;
+		res += Bases::set_redis(tmppool, game_id, state.base_info).await?;
 		if state.available_areas.is_some() {
 			AvailableAreas::set_available(tmppool, game_id, state.available_areas.unwrap()).await?;
 		}
@@ -548,9 +655,10 @@ impl TriviadorState {
 
 		let game_state = GameState::get_gamestate(tmppool, game_id).await?;
 		let round_info = RoundInfo::get_roundinfo(tmppool, game_id).await?;
+		let base_info = Bases::get_redis(tmppool, game_id).await?;
 		let available_areas = AvailableAreas::get_available(tmppool, game_id).await?;
 		let shield_mission = ShieldMission::get_shield_mission(tmppool, game_id).await?;
-		let areas_info = Area::get_full(tmppool, game_id).await?;
+		let areas_info = Area::get_redis(tmppool, game_id).await?;
 		Ok(TriviadorState {
 			map_name: res.get("map_name").unwrap().to_string(),
 			game_state,
@@ -559,7 +667,7 @@ impl TriviadorState {
 			players_chat_state: res.get("players_chat_state").unwrap().to_string(),
 			players_points: res.get("players_points").unwrap().to_string(),
 			selection: res.get("selection").unwrap().to_string(),
-			base_info: res.get("base_info").unwrap().to_string(),
+			base_info,
 			areas_info,
 			available_areas,
 			used_helps: res.get("used_helps").unwrap().to_string(),
@@ -568,6 +676,32 @@ impl TriviadorState {
 			shield_mission,
 			war: res.get("war").cloned(),
 		})
+	}
+
+	pub(crate) async fn set_field(
+		tmppool: &RedisPool,
+		game_id: u32,
+		field: &str,
+		value: &str,
+	) -> Result<u8, anyhow::Error> {
+		let res: u8 = tmppool
+			.hset(
+				format!("games:{}:triviador_state", game_id),
+				[(field, value)],
+			)
+			.await?;
+		Ok(res)
+	}
+
+	pub(crate) async fn get_field(
+		tmppool: &RedisPool,
+		game_id: u32,
+		field: &str,
+	) -> Result<String, anyhow::Error> {
+		let res: String = tmppool
+			.hget(format!("games:{}:triviador_state", game_id), field)
+			.await?;
+		Ok(res)
 	}
 }
 
@@ -916,39 +1050,41 @@ pub mod county {
 		pub available: Option<AvailableAreas>,
 		#[serde(rename = "@TO")]
 		// seconds for action
-		pub cmd_timeout: u8,
+		pub timeout: u8,
 	}
 
 	impl Cmd {
-		pub async fn set_cmd(
+		pub async fn set_player_cmd(
 			tmppool: &RedisPool,
-			game_id: u32,
+			player_id: i32,
 			cmd: Cmd,
 		) -> Result<u8, anyhow::Error> {
 			{
 				let mut res: u8 = tmppool
 					.hset(
-						format!("games:{}:cmd", game_id),
+						format!("users:{}:cmd", player_id),
 						[
 							("command", cmd.command),
-							("cmd_timeout", cmd.cmd_timeout.to_string()),
+							("cmd_timeout", cmd.timeout.to_string()),
 						],
 					)
 					.await?;
-				if cmd.available.is_some() {
-					res += AvailableAreas::set_available(tmppool, game_id, cmd.available.unwrap())
-						.await?;
-				}
+				// if cmd.available.is_some() {
+				// 	res += AvailableAreas::set_available(tmppool, game_id, cmd.available.unwrap())
+				// 		.await?;
+				// }
 				Ok(res)
 			}
 		}
-		pub(crate) async fn get_cmd(
+		/// Gets a player's requested command, if none returns None
+		/// Gets the available areas from the triviador game state
+		pub(crate) async fn get_player_cmd(
 			tmppool: &RedisPool,
+			player_id: i32,
 			game_id: u32,
 		) -> Result<Option<Cmd>, anyhow::Error> {
-			// todo account for none
 			let res: HashMap<String, String> =
-				tmppool.hgetall(format!("games:{}:cmd", game_id)).await?;
+				tmppool.hgetall(format!("users:{}:cmd", player_id)).await?;
 
 			// return if none
 			if res.is_empty() {
@@ -960,15 +1096,15 @@ pub mod county {
 			Ok(Some(Cmd {
 				command: res.get("command").unwrap().to_string(),
 				available,
-				cmd_timeout: res.get("cmd_timeout").unwrap().parse()?,
+				timeout: res.get("cmd_timeout").unwrap().parse()?,
 			}))
 		}
 
 		pub(crate) async fn clear_cmd(
 			tmppool: &RedisPool,
-			game_id: u32,
+			player_id: i32,
 		) -> Result<u8, anyhow::Error> {
-			let res: u8 = tmppool.del(format!("games:{}:cmd", game_id)).await?;
+			let res: u8 = tmppool.del(format!("users:{}:cmd", player_id)).await?;
 			Ok(res)
 		}
 	}
@@ -1291,31 +1427,33 @@ mod tests {
 		assert_eq!(Base::deserialize_from_hex("08").unwrap(), *base);
 
 		let s = "8C080B";
-		let res = Base::deserialize_full(s).unwrap();
+		let res = Bases::deserialize_full(s).unwrap();
 		assert_eq!(
-			HashMap::from([
-				(
-					PlayerNames::Player1,
-					Base {
-						base_id: 12,
-						towers_destroyed: 2
-					}
-				),
-				(
-					PlayerNames::Player2,
-					Base {
-						base_id: 8,
-						towers_destroyed: 0
-					}
-				),
-				(
-					PlayerNames::Player3,
-					Base {
-						base_id: 11,
-						towers_destroyed: 0
-					}
-				)
-			]),
+			Bases {
+				every_base: HashMap::from([
+					(
+						PlayerNames::Player1,
+						Base {
+							base_id: 12,
+							towers_destroyed: 2
+						}
+					),
+					(
+						PlayerNames::Player2,
+						Base {
+							base_id: 8,
+							towers_destroyed: 0
+						}
+					),
+					(
+						PlayerNames::Player3,
+						Base {
+							base_id: 11,
+							towers_destroyed: 0
+						}
+					)
+				])
+			},
 			res
 		);
 	}
@@ -1367,7 +1505,7 @@ mod tests {
 		let res = Area::serialize_full(&HashMap::from([(
 			County::SzabolcsSzatmarBereg,
 			Area {
-				owner: 3,
+				owner: PlayerNames::Player3 as u8,
 				is_fortress: false,
 				value: AreaValue::_1000,
 			},

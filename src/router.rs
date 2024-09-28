@@ -17,14 +17,16 @@ use crate::channels::command::response::CommandResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
-use crate::channels::{ChannelType, ErrorResponse};
+use crate::channels::{ChannelErrorResponse, ChannelType};
 use crate::emulator::Emulator;
 use crate::menu::friend_list::external_data::ExternalFriendsRoot;
 use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
+use crate::triviador::county::Cmd;
 use crate::triviador::{AvailableAreas, GameState, TriviadorGame};
+use crate::users::ServerCommand;
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
@@ -147,11 +149,12 @@ pub async fn game(
 					))?)
 				}
 				CommandType::StartTriviador(_) => {
-					// todo make the server handle the game
 					let redis = tmp_db.0.clone();
+					// todo race condition here!
 					tokio::spawn(async move {
 						sside::ServerGameHandler::new_friendly(&tmp_db, GAME_ID).await;
 					});
+					tokio::time::sleep(Duration::from_secs(1)).await;
 					let xml = quick_xml::se::to_string(
 						&TriviadorGame::get_triviador(&redis, GAME_ID).await?,
 					)?;
@@ -162,33 +165,21 @@ pub async fn game(
 					))?)
 				}
 				CommandType::GamePlayerReady => {
+					users::User::set_game_ready_state(&tmp_db, PLAYER_ID, true).await?;
 					users::User::set_listen_state(&tmp_db, PLAYER_ID, true).await?;
-					// todo pub/sub sside
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
 					))?)
 				}
 				CommandType::SelectArea(area_selection) => {
-					let av_fut = AvailableAreas::pop_county(
+					users::User::set_server_command(
 						&tmp_db,
-						GAME_ID,
-						area_selection.area.try_into()?,
-					);
-					let gs_fut = GameState::set_gamestate(
-						&tmp_db,
-						GAME_ID,
-						GameState {
-							state: 1,
-							gameround: 0,
-							phase: 2,
-						},
-					);
-					try_join!(av_fut, gs_fut)?;
-					let xml = quick_xml::se::to_string(
-						&TriviadorGame::get_triviador(&tmp_db, GAME_ID).await?,
-					)?;
-					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &xml).await?;
+						PLAYER_ID,
+						ServerCommand::SelectBase(area_selection.area),
+					)
+					.await?;
+
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -199,11 +190,7 @@ pub async fn game(
 		ChannelType::Listen(lis) => {
 			let ser: ListenRoot = quick_xml::de::from_str(&string)?;
 			users::User::set_listen_state(&tmp_db, PLAYER_ID, ser.listen.is_ready).await?;
-			if !ser.listen.is_ready {
-				while !users::User::is_listen_ready(&tmp_db, PLAYER_ID).await? {
-					tokio::time::sleep(Duration::from_millis(1000)).await;
-				}
-			}
+
 			if !users::User::get_is_logged_in(&tmp_db, PLAYER_ID).await? {
 				users::User::set_is_logged_in(&tmp_db, PLAYER_ID, true).await?;
 				return Ok(modified_xml_response(&ListenResponse::new(
@@ -215,38 +202,37 @@ pub async fn game(
 					VillageSetup(VillageSetupRoot::emulate()),
 				))?);
 			}
+
 			let subscriber = Builder::default_centralized().build()?;
 			subscriber.init().await?;
 			subscriber
 				.psubscribe(format!("__key*__:users:{}:listen_queue", PLAYER_ID))
 				.await?;
 			let mut keyspace_rx = subscriber.keyspace_event_rx();
-			while let Ok(event) = keyspace_rx.recv().await {
-				users::User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
 
-				if event.operation == "rpush" {
-					let next_listen = match users::User::pop_listen_queue(&tmp_db, PLAYER_ID).await
-					{
-						None => {
-							return Err(AppError::from(anyhow!(
-								"Invalid body xml, possibly without header"
-							)));
-						}
-						Some(res) => res,
-					};
-					return Ok(format!(
-						"{}\n{}",
-						quick_xml::se::to_string(&ListenResponseHeader {
-							client_id: PLAYER_ID.to_string(),
-							mn: lis.mn,
-							result: 0,
-						})?,
-						remove_root_tag(next_listen)
-					));
-				}
+			let event = keyspace_rx.recv().await?;
+			users::User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
+			if event.operation == "rpush" {
+				let next_listen = match users::User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
+					None => {
+						return Err(AppError::from(anyhow!(
+							"Invalid body xml, possibly without header"
+						)));
+					}
+					Some(res) => res,
+				};
+				return Ok(format!(
+					"{}\n{}",
+					quick_xml::se::to_string(&ListenResponseHeader {
+						client_id: PLAYER_ID.to_string(),
+						mn: lis.mn,
+						result: 0,
+					})?,
+					remove_root_tag(next_listen)
+				));
 			}
-			// this theroetically never happens but this makes the compiler happy
-			Ok(modified_xml_response(&ErrorResponse {})?)
+			// this theoretically never happens but this makes the compiler happy
+			Ok(modified_xml_response(&ChannelErrorResponse {})?)
 		}
 	}
 }

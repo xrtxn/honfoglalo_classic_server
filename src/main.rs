@@ -22,7 +22,7 @@ mod village;
 async fn main() -> Result<(), AppError> {
 	tracing_subscriber::registry()
 		.with(EnvFilter::new(std::env::var("RUST_LOG").unwrap_or_else(
-			|_| "sqlx=warn,tower_http=debug,honfoglalo_classic_server=info,fred=info".into(),
+			|_| "sqlx=warn,tower_http=debug,honfoglalo_classic_server=trace,fred=info".into(),
 		)))
 		.with(tracing_subscriber::fmt::layer())
 		.init();
