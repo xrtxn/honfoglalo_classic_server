@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::str::FromStr;
 
 use fred::prelude::*;
 use serde::ser::SerializeStruct;

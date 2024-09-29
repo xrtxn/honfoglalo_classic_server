@@ -1,15 +1,21 @@
 use fred::prelude::*;
-use fred::types::KeyspaceEvent;
 use tokio::select;
-use tokio::sync::broadcast::Receiver;
-use tracing::{error, info, trace};
+use tracing::trace;
 
 use crate::triviador::county::Cmd;
-use crate::triviador::{AvailableAreas, GameState, PlayerInfo, TriviadorGame, TriviadorState};
-use crate::users;
+use crate::triviador::{
+	available_area::AvailableAreas, game::TriviadorGame, game_state::GameState,
+};
 use crate::users::{ServerCommand, User};
 
 pub struct ServerGameHandler {}
+
+pub struct AnnouncementStage {}
+mod bot_game {
+	use super::*;
+
+	impl AnnouncementStage {}
+}
 
 impl ServerGameHandler {
 	pub async fn new_friendly(tmppool: &RedisPool, game_id: u32) {
@@ -94,7 +100,6 @@ impl ServerGameHandler {
 					}
 				}
 			} else {
-				// wait_for_redis_event(tmppool, &anim_subscriber, player_id).await;
 				trace!("Small performance penalty, listen ready is false after checking")
 			}
 		}

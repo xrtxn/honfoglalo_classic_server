@@ -1,9 +1,11 @@
+use serde::{Deserialize, Serialize};
+
 pub mod request {
 	use serde::{Deserialize, Serialize};
 
+	use crate::channels::command::AreaSelection;
 	use crate::login_screen::LoginXML;
 	use crate::menu::friend_list::external_data::ExtDataRequest;
-	use crate::triviador::AreaSelection;
 	use crate::village::start::friendly_game::{
 		AddFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
 	};
@@ -49,6 +51,12 @@ pub mod request {
 		#[serde(rename = "SELECT")]
 		SelectArea(AreaSelection),
 	}
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct AreaSelection {
+	#[serde(rename = "@AREA")]
+	pub area: u8,
 }
 
 pub mod response {

@@ -7,7 +7,6 @@ use axum::{Extension, Json};
 use fred::clients::RedisPool;
 use fred::prelude::*;
 use sqlx::PgPool;
-use tokio::try_join;
 use tracing::warn;
 
 use crate::app::AppError;
@@ -24,8 +23,7 @@ use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::triviador::county::Cmd;
-use crate::triviador::{AvailableAreas, GameState, TriviadorGame};
+use crate::triviador::game::TriviadorGame;
 use crate::users::ServerCommand;
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
