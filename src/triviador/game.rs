@@ -42,7 +42,7 @@ impl TriviadorGame {
 					phase: 0,
 				},
 				round_info: RoundInfo {
-					lpnum: 0,
+					last_player: 0,
 					next_player: 0,
 				},
 				players_connected: "123".to_string(),
@@ -147,31 +147,32 @@ impl TriviadorGame {
 
 	/// Modifies a triviador game's state to announcement stage
 	/// Sets the game's state to 1
-	pub async fn announcement_stage(
-		tmppool: &RedisPool,
-		game_id: u32,
-	) -> Result<u8, anyhow::Error> {
-		let res = GameState::set_gamestate(
-			tmppool,
-			game_id,
-			GameState {
-				state: 1,
-				// these do not have to be set
-				gameround: 0,
-				phase: 0,
-			},
-		)
-		.await?;
-		Ok(res)
-	}
+	// pub async fn announcement_stage(
+	// 	tmppool: &RedisPool,
+	// 	game_id: u32,
+	// ) -> Result<u8, anyhow::Error> {
+	// 	let res = GameState::set_gamestate(
+	// 		tmppool,
+	// 		game_id,
+	// 		GameState {
+	// 			state: 1,
+	// 			// these do not have to be set
+	// 			gameround: 0,
+	// 			phase: 0,
+	// 		},
+	// 	)
+	// 	.await?;
+	// 	Ok(res)
+	// }
 
 	/// Modifies a triviador game's state to area choosing stage
 	///
-	/// Sets the game's `phase` to 1, `roundinfo` to {`lpnum`: 1, `next_player`: 1}, available areas
-	/// to all counties
-	pub async fn select_bases_stage(
+	/// Sets the game's `phase` to 1, `roundinfo` to {`last_player`: 1, `next_player`: 1}, available
+	/// areas to all counties
+	pub async fn player_select_stage(
 		tmppool: &RedisPool,
 		game_id: u32,
+		game_player_id: u8,
 	) -> Result<u8, anyhow::Error> {
 		let mut res: u8 = GameState::set_gamestate(
 			tmppool,
@@ -188,8 +189,8 @@ impl TriviadorGame {
 			tmppool,
 			game_id,
 			RoundInfo {
-				lpnum: 1,
-				next_player: 1,
+				last_player: game_player_id,
+				next_player: game_player_id,
 			},
 		)
 		.await?;
@@ -253,7 +254,7 @@ impl TriviadorGame {
 			.split(',')
 			.map(|x| x.parse::<u16>().unwrap())
 			.collect();
-		scores[0] += 1000;
+		scores[game_player_id as usize - 1] += 1000;
 		TriviadorState::set_field(
 			tmppool,
 			game_id,

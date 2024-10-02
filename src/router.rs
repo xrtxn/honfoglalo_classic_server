@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::time::Duration;
 
 use anyhow::anyhow;
 use axum::extract::Query;
@@ -23,7 +22,6 @@ use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::triviador::game::TriviadorGame;
 use crate::users::ServerCommand;
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
@@ -147,16 +145,9 @@ pub async fn game(
 					))?)
 				}
 				CommandType::StartTriviador(_) => {
-					let redis = tmp_db.0.clone();
-					// todo race condition here!
 					tokio::spawn(async move {
 						sside::ServerGameHandler::new_friendly(&tmp_db, GAME_ID).await;
 					});
-					tokio::time::sleep(Duration::from_secs(1)).await;
-					let xml = quick_xml::se::to_string(
-						&TriviadorGame::get_triviador(&redis, GAME_ID).await?,
-					)?;
-					users::User::push_listen_queue(&redis, PLAYER_ID, &xml).await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -164,7 +155,6 @@ pub async fn game(
 				}
 				CommandType::GamePlayerReady => {
 					users::User::set_game_ready_state(&tmp_db, PLAYER_ID, true).await?;
-					users::User::set_listen_state(&tmp_db, PLAYER_ID, true).await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -209,7 +199,7 @@ pub async fn game(
 			let mut keyspace_rx = subscriber.keyspace_event_rx();
 
 			let event = keyspace_rx.recv().await?;
-			users::User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
+			// users::User::set_game_ready_state(&tmp_db, PLAYER_ID, false).await?;
 			if event.operation == "rpush" {
 				let next_listen = match users::User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
 					None => {

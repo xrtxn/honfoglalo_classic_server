@@ -2,6 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 use fred::prelude::*;
+use tracing::log::warn;
 use tracing::trace;
 
 pub struct User {}
@@ -76,6 +77,12 @@ impl User {
 		id: i32,
 		is_ready: bool,
 	) -> Result<(), anyhow::Error> {
+		// debug purposes
+		if Self::get_listen_state(tmppool, id).await? == is_ready {
+			warn!("Listen state already set to {}", is_ready);
+			return Ok(());
+		}
+		// trace!("Setting listen state for player {}: {}", id, is_ready);
 		let _: bool = tmppool
 			.set(
 				format!("users:{}:is_listen_ready", id),
@@ -89,7 +96,10 @@ impl User {
 	}
 
 	pub async fn get_listen_state(tmppool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
-		let res: bool = tmppool.get(format!("users:{}:is_listen_ready", id)).await?;
+		let res: bool = tmppool
+			.get(format!("users:{}:is_listen_ready", id))
+			.await
+			.unwrap_or_else(|_| false);
 		Ok(res)
 	}
 
@@ -98,6 +108,7 @@ impl User {
 		id: i32,
 		is_ready: bool,
 	) -> Result<(), anyhow::Error> {
+		// trace!("Setting game ready state for player {}: {}", id, is_ready);
 		let _: bool = tmppool
 			.set(
 				format!("users:{}:is_game_ready", id),
@@ -150,7 +161,7 @@ impl User {
 		id: i32,
 		command: ServerCommand,
 	) -> Result<(), anyhow::Error> {
-		trace!("Setting server command: {}", command);
+		// trace!("Setting server command: {}", command);
 		let _: String = tmppool
 			.set(
 				format!("users:{}:server_command", id),
@@ -170,6 +181,32 @@ impl User {
 		let res: String = tmppool.get(format!("users:{}:server_command", id)).await?;
 		trace!("Getting server command: {}", res);
 		Ok(res.parse()?)
+	}
+
+	pub async fn set_send(
+		tmppool: &RedisPool,
+		player_id: i32,
+		last_send: bool,
+	) -> Result<(), anyhow::Error> {
+		// trace!("Setting send for player {}: {}", player_id, last_send);
+		let _: String = tmppool
+			.set(
+				format!("users:{}:waiting", player_id),
+				last_send,
+				None,
+				None,
+				false,
+			)
+			.await?;
+		Ok(())
+	}
+
+	pub async fn get_send(tmppool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
+		let res: bool = tmppool
+			.get(format!("users:{}:waiting", id))
+			.await
+			.unwrap_or_else(|_| false);
+		Ok(res)
 	}
 
 	pub async fn subscribe_command(player_id: i32) {

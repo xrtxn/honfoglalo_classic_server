@@ -7,8 +7,8 @@ use serde::{Serialize, Serializer};
 #[derive(Debug, Clone)]
 // todo find out what this is
 pub struct RoundInfo {
-	pub lpnum: i32,
-	pub next_player: i32,
+	pub last_player: u8,
+	pub next_player: u8,
 }
 
 impl RoundInfo {
@@ -21,7 +21,7 @@ impl RoundInfo {
 			.hset(
 				format!("games:{}:triviador_state:round_info", game_id),
 				[
-					("lpnum", round_info.lpnum),
+					("last_player", round_info.last_player),
 					("next_player", round_info.next_player),
 				],
 			)
@@ -33,12 +33,12 @@ impl RoundInfo {
 		tmppool: &RedisPool,
 		game_id: u32,
 	) -> Result<RoundInfo, anyhow::Error> {
-		let res: HashMap<String, i32> = tmppool
+		let res: HashMap<String, u8> = tmppool
 			.hgetall(format!("games:{}:triviador_state:round_info", game_id))
 			.await?;
 
 		Ok(RoundInfo {
-			lpnum: *res.get("lpnum").unwrap(),
+			last_player: *res.get("last_player").unwrap(),
 			next_player: *res.get("next_player").unwrap(),
 		})
 	}
@@ -49,7 +49,7 @@ impl Serialize for RoundInfo {
 	where
 		S: Serializer,
 	{
-		let s = format!("{},{}", self.lpnum, self.next_player);
+		let s = format!("{},{}", self.last_player, self.next_player);
 
 		serializer.serialize_str(&s)
 	}

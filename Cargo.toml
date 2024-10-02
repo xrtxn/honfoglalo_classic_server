@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 axum = { version = "0.7.5", features = ["macros", "query"] }
-axum-extra = { version = "0.9.3", features = ["typed-header"] }
 anyhow = "1.0.86"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -18,13 +17,12 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing = "0.1.40"
 sqlx = { version = "0.8.1", features = ["postgres", "runtime-tokio"] }
 fred = { version = "9.1.2", features = ["full-tracing"] }
-chrono = "0.4.38"
 dotenvy = "0.15.7"
-headers = "0.4.0"
-time = "0.3.36"
 hex = "0.4.3"
 fastrand = "2.1.1"
 futures = "0.3.30"
+#todo check performance
+rand = "0.8"
 
 [dev-dependencies]
 serde_test = "1"
