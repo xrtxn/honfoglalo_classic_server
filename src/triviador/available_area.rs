@@ -3,6 +3,7 @@ use std::str::FromStr;
 
 use fred::clients::RedisPool;
 use fred::prelude::*;
+use tracing::{error, trace, warn};
 
 use crate::triviador::county::County;
 
@@ -12,8 +13,8 @@ pub struct AvailableAreas {
 }
 
 impl AvailableAreas {
-	pub async fn set_empty(tmppool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+	pub async fn set_empty(temp_pool: &RedisPool, game_id: u32) -> Result<u8, anyhow::Error> {
+		let res: u8 = temp_pool
 			// todo delete old!
 			.lpush(
 				format!("games:{}:triviador_state:available_areas", game_id),
@@ -24,7 +25,7 @@ impl AvailableAreas {
 	}
 
 	pub async fn set_available(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		areas: AvailableAreas,
 	) -> Result<u8, anyhow::Error> {
@@ -38,11 +39,11 @@ impl AvailableAreas {
 				.collect::<Vec<String>>()
 		};
 		// this may be dangerous
-		tmppool
+		temp_pool
 			.del::<u8, _>(format!("games:{}:triviador_state:available_areas", game_id))
 			.await?;
 
-		let res = tmppool
+		let res = temp_pool
 			.rpush::<u8, _, _>(
 				format!("games:{}:triviador_state:available_areas", game_id),
 				vec,
@@ -51,10 +52,10 @@ impl AvailableAreas {
 		Ok(res)
 	}
 	pub(crate) async fn get_available(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 	) -> Result<Option<AvailableAreas>, anyhow::Error> {
-		let test_areas: Vec<String> = tmppool
+		let test_areas: Vec<String> = temp_pool
 			.lrange(
 				format!("games:{}:triviador_state:available_areas", game_id),
 				0,
@@ -78,17 +79,20 @@ impl AvailableAreas {
 
 	/// this does not fail if the removable county is not there
 	pub(crate) async fn pop_county(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		county: County,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.lrem(
 				format!("games:{}:triviador_state:available_areas", game_id),
 				1,
 				county.to_string(),
 			)
 			.await?;
+		if res == 0 {
+			error!("County {} was not in the list", county);
+		}
 		Ok(res)
 	}
 	pub(crate) fn all_counties() -> AvailableAreas {

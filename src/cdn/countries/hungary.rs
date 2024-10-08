@@ -3,12 +3,6 @@ use crate::cdn::countries::FlagIds::Hungarian;
 use crate::cdn::countries::{CountriesData, CountriesResponse};
 use crate::emulator::Emulator;
 
-const NEIGHBOURS: &str = "";
-pub fn is_neighbour(anum: i32, astr: &str) -> bool {
-	let s = format!(",{},", anum);
-	astr.contains(&s)
-}
-
 pub mod flags {
 	use serde::{Deserialize, Serialize};
 
@@ -52,7 +46,7 @@ pub mod flags {
 		Baranya,
 		#[serde(rename = "bk")]
 		BacsKiskun,
-		// idk why these are here
+		// IDK why these are here
 		#[serde(rename = "b1")]
 		B1,
 		#[serde(rename = "b2")]

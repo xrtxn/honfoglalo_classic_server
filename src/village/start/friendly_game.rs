@@ -96,14 +96,14 @@ impl Serialize for ActiveSepRoom {
 }
 
 impl ActiveSepRoom {
-	pub async fn set_next_num(tmppool: &RedisPool, number: u32) -> Result<(), anyhow::Error> {
-		let _: String = tmppool
+	pub async fn set_next_num(temp_pool: &RedisPool, number: u32) -> Result<(), anyhow::Error> {
+		let _: String = temp_pool
 			.set("games:active_rooms:num", number, None, None, false)
 			.await?;
 		Ok(())
 	}
-	pub async fn get_next_num(tmppool: &RedisPool) -> Result<u32, anyhow::Error> {
-		let res: u32 = tmppool
+	pub async fn get_next_num(temp_pool: &RedisPool) -> Result<u32, anyhow::Error> {
+		let res: u32 = temp_pool
 			.get("games:active_rooms:num")
 			.await
 			.unwrap_or_else(|_| 0);
@@ -111,11 +111,11 @@ impl ActiveSepRoom {
 	}
 
 	pub async fn set_active(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		room_number: u32,
 		room: ActiveSepRoom,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.hset(
 				format!("games:active_rooms:{}", room_number),
 				[
@@ -134,15 +134,15 @@ impl ActiveSepRoom {
 			)
 			.await?;
 		// todo fix possible overflow
-		Self::set_next_num(tmppool, room_number + 1).await?;
+		Self::set_next_num(temp_pool, room_number + 1).await?;
 		Ok(res)
 	}
 
 	pub async fn get_active(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		number: u32,
 	) -> Result<ActiveSepRoom, anyhow::Error> {
-		let res: HashMap<String, String> = tmppool
+		let res: HashMap<String, String> = temp_pool
 			.hgetall(format!("games:active_rooms:{}", number))
 			.await?;
 		let room = ActiveSepRoom {
@@ -162,13 +162,13 @@ impl ActiveSepRoom {
 	}
 
 	pub(crate) async fn new_bots_room(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		room_number: u32,
 		player1_id: i32,
 		player1_name: &str,
 	) -> Result<u8, anyhow::Error> {
 		let res = Self::set_active(
-			tmppool,
+			temp_pool,
 			room_number,
 			ActiveSepRoom {
 				code: None,

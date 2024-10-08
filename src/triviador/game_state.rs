@@ -14,11 +14,11 @@ pub struct GameState {
 
 impl GameState {
 	pub(crate) async fn set_gamestate(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		state: GameState,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.hset(
 				format!("games:{}:triviador_state:game_state", game_id),
 				[
@@ -32,10 +32,10 @@ impl GameState {
 	}
 
 	pub(crate) async fn get_gamestate(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 	) -> Result<GameState, anyhow::Error> {
-		let res: HashMap<String, i32> = tmppool
+		let res: HashMap<String, i32> = temp_pool
 			.hgetall(format!("games:{}:triviador_state:game_state", game_id))
 			.await?;
 

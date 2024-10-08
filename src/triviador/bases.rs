@@ -56,8 +56,8 @@ pub struct Bases {
 }
 
 impl Bases {
-	pub async fn get_redis(tmppool: &RedisPool, game_id: u32) -> Result<Self, anyhow::Error> {
-		let res: String = tmppool
+	pub async fn get_redis(temp_pool: &RedisPool, game_id: u32) -> Result<Self, anyhow::Error> {
+		let res: String = temp_pool
 			.hget(format!("games:{}:triviador_state", game_id), "base_info")
 			.await?;
 		let rest = Self::deserialize_full(&res)?;
@@ -65,11 +65,11 @@ impl Bases {
 	}
 
 	pub async fn set_redis(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		bases: Bases,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.hset(
 				format!("games:{}:triviador_state", game_id),
 				[("base_info", Bases::serialize_full(&bases)?)],
@@ -110,16 +110,16 @@ impl Bases {
 	}
 
 	pub async fn add_base(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		player: PlayerNames,
 		base: Base,
 	) -> Result<(), anyhow::Error> {
-		let mut bases = Bases::get_redis(tmppool, game_id).await?;
+		let mut bases = Bases::get_redis(temp_pool, game_id).await?;
 
 		bases.every_base.insert(player, base);
 
-		Self::set_redis(tmppool, game_id, bases).await?;
+		Self::set_redis(temp_pool, game_id, bases).await?;
 		Ok(())
 	}
 }

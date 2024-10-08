@@ -13,11 +13,11 @@ pub struct RoundInfo {
 
 impl RoundInfo {
 	pub(crate) async fn set_roundinfo(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		round_info: RoundInfo,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.hset(
 				format!("games:{}:triviador_state:round_info", game_id),
 				[
@@ -30,10 +30,10 @@ impl RoundInfo {
 	}
 
 	pub(crate) async fn get_roundinfo(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 	) -> Result<RoundInfo, anyhow::Error> {
-		let res: HashMap<String, u8> = tmppool
+		let res: HashMap<String, u8> = temp_pool
 			.hgetall(format!("games:{}:triviador_state:round_info", game_id))
 			.await?;
 

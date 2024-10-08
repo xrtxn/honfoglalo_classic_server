@@ -44,12 +44,12 @@ pub struct GamePlayerData {
 
 impl GamePlayerData {
 	pub async fn set_game_player_data(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		game_player_number: i32,
 		game_player_data: GamePlayerData,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.hset(
 				format!("games:{}:info", game_id),
 				[(
@@ -61,11 +61,11 @@ impl GamePlayerData {
 		Ok(res)
 	}
 	pub async fn get_game_player_data(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		player_id: i32,
 	) -> Result<GamePlayerData, anyhow::Error> {
-		let res: String = tmppool
+		let res: String = temp_pool
 			.hget(
 				format!("games:{}:info", game_id),
 				format!("pd{}", player_id),

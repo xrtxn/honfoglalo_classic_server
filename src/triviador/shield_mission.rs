@@ -12,11 +12,11 @@ pub struct ShieldMission {
 
 impl ShieldMission {
 	pub(crate) async fn set_shield_mission(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		mission: ShieldMission,
 	) -> Result<u8, anyhow::Error> {
-		let res: u8 = tmppool
+		let res: u8 = temp_pool
 			.hset(
 				format!("games:{}:triviador_state:shield_mission", game_id),
 				[
@@ -29,11 +29,11 @@ impl ShieldMission {
 	}
 
 	pub(crate) async fn get_shield_mission(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		// todo this may be simplified
 	) -> Result<Option<ShieldMission>, anyhow::Error> {
-		let res: HashMap<String, i32> = tmppool
+		let res: HashMap<String, i32> = temp_pool
 			.hgetall(format!("games:{}:triviador_state:shield_mission", game_id))
 			.await?;
 		if res.is_empty() {

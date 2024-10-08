@@ -27,7 +27,7 @@ use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
-use crate::village::waithall::GameMenuWaithall;
+use crate::village::waithall::{GameMenuWaithall, Waithall};
 use crate::{sside, users};
 
 pub async fn help() -> Json<HelpResponse> {
@@ -94,8 +94,16 @@ pub async fn game(
 						PLAYER_ID, comm.mn,
 					))?)
 				}
-				CommandType::ChangeWaitHall(_) => {
-					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
+				CommandType::ChangeWaitHall(chw) => {
+					let msg;
+					match chw.waithall {
+						Waithall::Game => {
+							msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
+						}
+						Waithall::Village => {
+							msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?
+						}
+					}
 					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &msg).await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -104,7 +112,6 @@ pub async fn game(
 				}
 				CommandType::EnterGameLobby(_) => {
 					todo!()
-					// state.0.lock().await.listen_queue.push_back(xml);
 					// quick_xml::se::to_string(&CommandResponse::ok(comm.
 					// client_id, comm.mn)).unwrap()
 				}
@@ -164,7 +171,7 @@ pub async fn game(
 					users::User::set_server_command(
 						&tmp_db,
 						PLAYER_ID,
-						ServerCommand::SelectBase(area_selection.area),
+						ServerCommand::SelectArea(area_selection.area),
 					)
 					.await?;
 

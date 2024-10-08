@@ -70,10 +70,10 @@ impl Area {
 	}
 
 	pub async fn get_redis(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 	) -> Result<HashMap<County, Area>, anyhow::Error> {
-		let res: String = tmppool
+		let res: String = temp_pool
 			.hget(format!("games:{}:triviador_state", game_id), "area_num")
 			.await?;
 		let rest = Self::deserialize_full(res)?;
@@ -100,12 +100,12 @@ impl Area {
 	}
 
 	pub async fn set_redis(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		serialized: String,
 	) -> Result<u8, RedisError> {
 		{
-			let res: u8 = tmppool
+			let res: u8 = temp_pool
 				.hset(
 					format!("games:{}:triviador_state", game_id),
 					[("area_num", serialized)],
@@ -116,21 +116,20 @@ impl Area {
 	}
 
 	pub async fn modify_area(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		values: (County, Area),
 	) -> Result<Option<Area>, anyhow::Error> {
 		{
-			let mut full = Self::get_redis(tmppool, game_id).await?;
+			let mut full = Self::get_redis(temp_pool, game_id).await?;
 			let replaced = full.insert(values.0, values.1);
-			Area::set_redis(tmppool, game_id, Area::serialize_full(&full)?).await?;
-			// return the replaced area info
+			Area::set_redis(temp_pool, game_id, Area::serialize_full(&full)?).await?;
 			Ok(replaced)
 		}
 	}
 
 	pub async fn base_selected(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		game_player_id: u8,
 		county: County,
@@ -140,12 +139,12 @@ impl Area {
 			is_fortress: false,
 			value: AreaValue::_1000,
 		};
-		Self::modify_area(tmppool, game_id, (county, base)).await?;
+		Self::modify_area(temp_pool, game_id, (county, base)).await?;
 		Ok(())
 	}
 
 	pub async fn area_occupied(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		game_player_id: u8,
 		county: County,
@@ -155,7 +154,7 @@ impl Area {
 			is_fortress: false,
 			value: AreaValue::_200,
 		};
-		Self::modify_area(tmppool, game_id, (county, base)).await?;
+		Self::modify_area(temp_pool, game_id, (county, base)).await?;
 		Ok(())
 	}
 }
@@ -168,7 +167,7 @@ impl Serialize for Area {
 	}
 }
 
-pub(crate) fn areas_full_seralizer<S>(
+pub(crate) fn areas_full_serializer<S>(
 	counties: &HashMap<County, Area>,
 	s: S,
 ) -> Result<S::Ok, S::Error>

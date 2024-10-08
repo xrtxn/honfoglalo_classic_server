@@ -36,15 +36,16 @@ pub struct PlayerInfo {
 
 impl PlayerInfo {
 	pub async fn set_info(
-		tmppool: &RedisPool,
+		temp_pool: &RedisPool,
 		game_id: u32,
 		info: PlayerInfo,
 	) -> Result<u8, anyhow::Error> {
 		{
-			let gpd_one_fut = GamePlayerData::set_game_player_data(tmppool, game_id, 1, info.pd1);
-			let gpd_two_fut = GamePlayerData::set_game_player_data(tmppool, game_id, 2, info.pd2);
-			let gpd_three_fut = GamePlayerData::set_game_player_data(tmppool, game_id, 3, info.pd3);
-			let info_fut = tmppool.hset::<u8, _, _>(
+			let gpd_one_fut = GamePlayerData::set_game_player_data(temp_pool, game_id, 1, info.pd1);
+			let gpd_two_fut = GamePlayerData::set_game_player_data(temp_pool, game_id, 2, info.pd2);
+			let gpd_three_fut =
+				GamePlayerData::set_game_player_data(temp_pool, game_id, 3, info.pd3);
+			let info_fut = temp_pool.hset::<u8, _, _>(
 				format!("games:{}:info", game_id),
 				[
 					("p1_name", info.p1_name),
@@ -75,12 +76,15 @@ impl PlayerInfo {
 			Ok(modified)
 		}
 	}
-	pub async fn get_info(tmppool: &RedisPool, game_id: u32) -> Result<PlayerInfo, anyhow::Error> {
+	pub async fn get_info(
+		temp_pool: &RedisPool,
+		game_id: u32,
+	) -> Result<PlayerInfo, anyhow::Error> {
 		let res: HashMap<String, String> =
-			tmppool.hgetall(format!("games:{}:info", game_id)).await?;
-		let pd1 = GamePlayerData::get_game_player_data(tmppool, game_id, 1).await?;
-		let pd2 = GamePlayerData::get_game_player_data(tmppool, game_id, 2).await?;
-		let pd3 = GamePlayerData::get_game_player_data(tmppool, game_id, 3).await?;
+			temp_pool.hgetall(format!("games:{}:info", game_id)).await?;
+		let pd1 = GamePlayerData::get_game_player_data(temp_pool, game_id, 1).await?;
+		let pd2 = GamePlayerData::get_game_player_data(temp_pool, game_id, 2).await?;
+		let pd3 = GamePlayerData::get_game_player_data(temp_pool, game_id, 3).await?;
 		Ok(PlayerInfo {
 			p1_name: res.get("p1_name").unwrap().to_string(),
 			p2_name: res.get("p2_name").unwrap().to_string(),
