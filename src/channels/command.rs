@@ -92,7 +92,7 @@ pub mod response {
 		}
 
 		pub fn error() -> ChannelErrorResponse {
-			ChannelErrorResponse {}
+			ChannelErrorResponse::new()
 		}
 	}
 

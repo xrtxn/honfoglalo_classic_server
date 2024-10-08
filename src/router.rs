@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use axum::extract::Query;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use fred::clients::RedisPool;
 use fred::prelude::*;
@@ -111,9 +113,7 @@ pub async fn game(
 					))?)
 				}
 				CommandType::EnterGameLobby(_) => {
-					todo!()
-					// quick_xml::se::to_string(&CommandResponse::ok(comm.
-					// client_id, comm.mn)).unwrap()
+					Ok(modified_xml_response(&CommandResponse::error())?)
 				}
 				CommandType::GetExternalData(_) => {
 					let msg = quick_xml::se::to_string(&ExternalFriendsRoot::emulate())?;

@@ -11,6 +11,11 @@ pub mod listen;
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "ERROR")]
 pub struct ChannelErrorResponse {}
+impl ChannelErrorResponse {
+	pub fn new() -> ChannelErrorResponse {
+		ChannelErrorResponse {}
+	}
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "CH")]
