@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use fred::clients::RedisPool;
 use fred::prelude::*;
 use serde::Serialize;
+use serde_with::skip_serializing_none;
 
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::county::available_serialize;
 
+#[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub struct Cmd {
 	#[serde(rename = "@CMD")]
@@ -19,6 +21,21 @@ pub struct Cmd {
 }
 
 impl Cmd {
+	pub fn select_command(available_areas: Option<AvailableAreas>, timeout: u8) -> Cmd {
+		Cmd {
+			command: "SELECT".to_string(),
+			available: available_areas,
+			timeout,
+		}
+	}
+	pub fn answer_command(timeout: u8) -> Cmd {
+		Cmd {
+			command: "ANSWER".to_string(),
+			available: None,
+			timeout,
+		}
+	}
+
 	pub async fn set_player_cmd(
 		temp_pool: &RedisPool,
 		player_id: i32,

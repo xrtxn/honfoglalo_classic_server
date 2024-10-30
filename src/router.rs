@@ -2,8 +2,6 @@ use std::collections::HashMap;
 
 use anyhow::anyhow;
 use axum::extract::Query;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use fred::clients::RedisPool;
 use fred::prelude::*;
@@ -24,13 +22,13 @@ use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::users::ServerCommand;
+use crate::sside;
+use crate::users::{ServerCommand, User};
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
-use crate::{sside, users};
 
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this
@@ -91,7 +89,7 @@ pub async fn game(
 			match ser.msg_type {
 				CommandType::Login(_) => {
 					// todo validate login
-					users::User::reset(&tmp_db, PLAYER_ID).await?;
+					User::reset(&tmp_db, PLAYER_ID).await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						PLAYER_ID, comm.mn,
 					))?)
@@ -106,7 +104,7 @@ pub async fn game(
 							msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?
 						}
 					}
-					users::User::push_listen_queue(&tmp_db, PLAYER_ID, &msg).await?;
+					User::push_listen_queue(&tmp_db, PLAYER_ID, &msg).await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -137,7 +135,7 @@ pub async fn game(
 						ActiveSepRoom::new_bots_room(&tmp_db, room_number, PLAYER_ID, PLAYER_NAME)
 							.await?;
 						let xml = ActiveSepRoom::get_active(&tmp_db, room_number).await?;
-						users::User::push_listen_queue(
+						User::push_listen_queue(
 							&tmp_db,
 							PLAYER_ID,
 							&quick_xml::se::to_string(&xml)?,
@@ -161,17 +159,30 @@ pub async fn game(
 					))?)
 				}
 				CommandType::GamePlayerReady => {
-					users::User::set_game_ready_state(&tmp_db, PLAYER_ID, true).await?;
+					User::set_listen_state(&tmp_db, PLAYER_ID, true).await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
 					))?)
 				}
 				CommandType::SelectArea(area_selection) => {
-					users::User::set_server_command(
+					User::set_server_command(
 						&tmp_db,
 						PLAYER_ID,
 						ServerCommand::SelectArea(area_selection.area),
+					)
+					.await?;
+
+					Ok(modified_xml_response(&CommandResponse::ok(
+						comm.client_id,
+						comm.mn,
+					))?)
+				}
+				CommandType::QuestionAnswer(ans) => {
+					User::set_server_command(
+						&tmp_db,
+						PLAYER_ID,
+						ServerCommand::QuestionAnswer(ans.get_answer()),
 					)
 					.await?;
 
@@ -184,10 +195,9 @@ pub async fn game(
 		}
 		ChannelType::Listen(lis) => {
 			let ser: ListenRoot = quick_xml::de::from_str(&string)?;
-			users::User::set_listen_state(&tmp_db, PLAYER_ID, ser.listen.is_ready).await?;
-
-			if !users::User::get_is_logged_in(&tmp_db, PLAYER_ID).await? {
-				users::User::set_is_logged_in(&tmp_db, PLAYER_ID, true).await?;
+			User::set_listen_state(&tmp_db, PLAYER_ID, ser.listen.is_ready).await?;
+			if !User::get_is_logged_in(&tmp_db, PLAYER_ID).await? {
+				User::set_is_logged_in(&tmp_db, PLAYER_ID, true).await?;
 				return Ok(modified_xml_response(&ListenResponse::new(
 					ListenResponseHeader {
 						client_id: lis.client_id,
@@ -198,6 +208,27 @@ pub async fn game(
 				))?);
 			}
 
+			if !User::is_listen_empty(&tmp_db, PLAYER_ID).await? {
+				sside::wait_for_game_ready(&tmp_db, PLAYER_ID).await;
+				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
+					None => {
+						return Err(AppError::from(anyhow!(
+							"Invalid body xml, possibly without header"
+						)));
+					}
+					Some(res) => res,
+				};
+				return Ok(format!(
+					"{}\n{}",
+					quick_xml::se::to_string(&ListenResponseHeader {
+						client_id: PLAYER_ID.to_string(),
+						mn: lis.mn,
+						result: 0,
+					})?,
+					remove_root_tag(next_listen)
+				));
+			}
+
 			let subscriber = Builder::default_centralized().build()?;
 			subscriber.init().await?;
 			subscriber
@@ -206,9 +237,9 @@ pub async fn game(
 			let mut keyspace_rx = subscriber.keyspace_event_rx();
 
 			let event = keyspace_rx.recv().await?;
-			// users::User::set_game_ready_state(&tmp_db, PLAYER_ID, false).await?;
 			if event.operation == "rpush" {
-				let next_listen = match users::User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
+				User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
+				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
 					None => {
 						return Err(AppError::from(anyhow!(
 							"Invalid body xml, possibly without header"

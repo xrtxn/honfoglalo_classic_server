@@ -5,9 +5,9 @@ use serde::{Serialize, Serializer};
 
 use crate::triviador::county::County;
 use crate::triviador::game_player_data::PlayerNames;
-use crate::utils::split_string_n;
+use crate::utils::{split_string_n, to_hex_with_length};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Selection {
 	counties: HashMap<PlayerNames, County>,
 }
@@ -65,7 +65,8 @@ impl Selection {
 				}
 				Some(county) => {
 					let base_part = *county as u8;
-					serialized.push_str(format!("{:02}", base_part).as_str());
+					let bytes = base_part.to_be_bytes();
+					serialized.push_str(to_hex_with_length(bytes.as_slice(), 2).as_str());
 				}
 			}
 		}
@@ -76,13 +77,21 @@ impl Selection {
 		let vals = split_string_n(s, 2);
 		let mut rest: HashMap<PlayerNames, County> = HashMap::with_capacity(3);
 		for (i, county_str) in vals.iter().enumerate() {
+			let value = u8::from_str_radix(county_str, 16)?;
+
 			rest.insert(
 				// increase by 1 because we don't have Player0
 				PlayerNames::try_from(i as u8 + 1)?,
-				County::try_from(county_str.parse::<u8>()?)?,
+				County::try_from(value)?,
 			);
 		}
 		Ok(Self { counties: rest })
+	}
+
+	pub(crate) fn get_player_county(&self, rel_id: u8) -> Option<&County> {
+		PlayerNames::try_from(rel_id)
+			.ok()
+			.and_then(|player| self.counties.get(&player))
 	}
 }
 
@@ -92,5 +101,32 @@ impl Serialize for Selection {
 		S: Serializer,
 	{
 		serializer.serialize_str(&Self::serialize_full(self).unwrap())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::triviador::county::County;
+	use crate::triviador::game_player_data::PlayerNames;
+
+	#[test]
+	fn test_serialize() {
+		let mut selection = Selection::new();
+		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
+		selection.add_selection(PlayerNames::Player2, County::Veszprem);
+		selection.add_selection(PlayerNames::Player3, County::Csongrad);
+		let serialized = selection.serialize_full().unwrap();
+		assert_eq!(serialized, "090E0B");
+	}
+
+	#[test]
+	fn test_deserialize() {
+		let mut selection = Selection::new();
+		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
+		selection.add_selection(PlayerNames::Player2, County::Veszprem);
+		selection.add_selection(PlayerNames::Player3, County::Csongrad);
+		let serialized = Selection::deserialize_full("090E0B").unwrap();
+		assert_eq!(serialized, selection);
 	}
 }

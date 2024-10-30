@@ -8,12 +8,16 @@ use tracing::trace;
 pub struct User {}
 pub enum ServerCommand {
 	SelectArea(u8),
+	QuestionAnswer(u8),
 }
 
 impl Display for ServerCommand {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		match self {
 			ServerCommand::SelectArea(area_num) => write!(f, "select_area,{}", area_num),
+			ServerCommand::QuestionAnswer(answer_num) => {
+				write!(f, "answer,{}", answer_num)
+			}
 		}
 	}
 }
@@ -24,6 +28,7 @@ impl FromStr for ServerCommand {
 		let parts: Vec<&str> = s.split(',').collect();
 		match parts[0] {
 			"select_area" => Ok(ServerCommand::SelectArea(parts[1].parse()?)),
+			"answer" => Ok(ServerCommand::QuestionAnswer(parts[1].parse()?)),
 			_ => Err(anyhow::anyhow!("Invalid command")),
 		}
 	}
@@ -42,7 +47,6 @@ impl User {
 			)
 			.await?;
 		Ok(())
-		// temp_pool.del::<u8, _>("listen_queue").await.unwrap();
 	}
 
 	pub async fn push_listen_queue(
@@ -55,6 +59,7 @@ impl User {
 			.await?;
 		Ok(())
 	}
+
 	pub async fn pop_listen_queue(temp_pool: &RedisPool, id: i32) -> Option<String> {
 		let res: Option<String> = temp_pool
 			.lpop(format!("users:{}:listen_queue", id), Some(1))
@@ -86,7 +91,6 @@ impl User {
 			warn!("Listen state already set to {}", is_ready);
 			return Ok(());
 		}
-		// trace!("Setting listen state for player {}: {}", id, is_ready);
 		let _: bool = temp_pool
 			.set(
 				format!("users:{}:is_listen_ready", id),
@@ -105,39 +109,6 @@ impl User {
 			.await
 			.unwrap_or_else(|_| false);
 		Ok(res)
-	}
-
-	pub async fn set_game_ready_state(
-		temp_pool: &RedisPool,
-		id: i32,
-		is_ready: bool,
-	) -> Result<(), anyhow::Error> {
-		// trace!("Setting game ready state for player {}: {}", id, is_ready);
-		let _: bool = temp_pool
-			.set(
-				format!("users:{}:is_game_ready", id),
-				is_ready,
-				None,
-				None,
-				false,
-			)
-			.await?;
-		User::set_listen_state(temp_pool, id, is_ready).await?;
-		Ok(())
-	}
-
-	pub async fn get_game_ready_state(
-		temp_pool: &RedisPool,
-		id: i32,
-	) -> Result<bool, anyhow::Error> {
-		let res: Option<String> = temp_pool.get(format!("users:{}:is_game_ready", id)).await?;
-		match res {
-			None => {
-				trace!("No game ready state found for player {}", id);
-				Ok(false)
-			}
-			Some(val) => val.parse::<bool>().map_err(Into::into),
-		}
 	}
 
 	pub async fn get_is_logged_in(temp_pool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
@@ -196,36 +167,11 @@ impl User {
 			.get(format!("users:{}:server_command", id))
 			.await?;
 		trace!("Getting server command: {}", res);
+		User::clear_server_command(temp_pool, id).await?;
 		Ok(res.parse()?)
 	}
 
-	pub async fn set_send(
-		temp_pool: &RedisPool,
-		player_id: i32,
-		last_send: bool,
-	) -> Result<(), anyhow::Error> {
-		// trace!("Setting send for player {}: {}", player_id, last_send);
-		let _: String = temp_pool
-			.set(
-				format!("users:{}:waiting", player_id),
-				last_send,
-				None,
-				None,
-				false,
-			)
-			.await?;
-		Ok(())
-	}
-
-	pub async fn get_send(temp_pool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
-		let res: bool = temp_pool
-			.get(format!("users:{}:waiting", id))
-			.await
-			.unwrap_or_else(|_| false);
-		Ok(res)
-	}
-
-	pub async fn subscribe_command(player_id: i32) {
+	pub async fn subscribe_server_command(player_id: i32) {
 		let subscriber = Builder::default_centralized().build().unwrap();
 		subscriber.init().await.unwrap();
 		subscriber

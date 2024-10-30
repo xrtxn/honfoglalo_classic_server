@@ -6,6 +6,7 @@ pub mod request {
 	use crate::channels::command::AreaSelection;
 	use crate::login_screen::LoginXML;
 	use crate::menu::friend_list::external_data::ExtDataRequest;
+	use crate::triviador::question::SelfAnswer;
 	use crate::village::start::friendly_game::{
 		AddFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
 	};
@@ -50,6 +51,8 @@ pub mod request {
 		GamePlayerReady,
 		#[serde(rename = "SELECT")]
 		SelectArea(AreaSelection),
+		#[serde(rename = "ANSWER")]
+		QuestionAnswer(SelfAnswer),
 	}
 }
 

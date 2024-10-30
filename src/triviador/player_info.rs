@@ -26,11 +26,10 @@ pub struct PlayerInfo {
 	#[serde(rename = "@YOU")]
 	pub you: String,
 	#[serde(rename = "@GAMEID")]
-	pub game_id: String,
+	pub game_id: u32,
 	#[serde(rename = "@ROOM")]
 	pub room: String,
 	#[serde(rename = "@RULES")]
-	// 1,0 possibly means quick game
 	pub rules: String,
 }
 
@@ -52,7 +51,7 @@ impl PlayerInfo {
 					("p2_name", info.p2_name),
 					("p3_name", info.p3_name),
 					("you", info.you),
-					("game_id", info.game_id),
+					("game_id", info.game_id.to_string()),
 					("room", info.room),
 					("rules", info.rules),
 				],
@@ -93,7 +92,7 @@ impl PlayerInfo {
 			pd2,
 			pd3,
 			you: res.get("you").unwrap().to_string(),
-			game_id: res.get("game_id").unwrap().to_string(),
+			game_id: res.get("game_id").unwrap().parse::<u32>()?,
 			room: res.get("room").unwrap().to_string(),
 			rules: res.get("rules").unwrap().to_string(),
 		})

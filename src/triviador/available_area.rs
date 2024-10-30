@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use fred::clients::RedisPool;
 use fred::prelude::*;
-use tracing::{error, trace, warn};
+use tracing::error;
 
 use crate::triviador::county::County;
 
@@ -95,6 +95,21 @@ impl AvailableAreas {
 		}
 		Ok(res)
 	}
+
+	pub(crate) async fn push_county(
+		temp_pool: &RedisPool,
+		game_id: u32,
+		county: County,
+	) -> Result<u8, anyhow::Error> {
+		let res: u8 = temp_pool
+			.rpush(
+				format!("games:{}:triviador_state:available_areas", game_id),
+				county.to_string(),
+			)
+			.await?;
+		Ok(res)
+	}
+
 	pub(crate) fn all_counties() -> AvailableAreas {
 		AvailableAreas {
 			areas: HashSet::from([

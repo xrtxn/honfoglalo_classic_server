@@ -7,13 +7,11 @@ use serde_with::skip_serializing_none;
 use tracing::warn;
 
 use crate::triviador::areas::Area;
-use crate::triviador::bases::{Base, Bases};
+use crate::triviador::bases::Bases;
 use crate::triviador::cmd::Cmd;
-use crate::triviador::county::County;
 use crate::triviador::selection::Selection;
 use crate::triviador::{
-	available_area::AvailableAreas, game_player_data::GamePlayerData,
-	game_player_data::PlayerNames, game_state::GameState, player_info::PlayerInfo,
+	available_area::AvailableAreas, game_state::GameState, player_info::PlayerInfo,
 	round_info::RoundInfo, triviador_state::TriviadorState,
 };
 
@@ -34,13 +32,14 @@ impl TriviadorGame {
 	pub async fn new_game(
 		temp_pool: &RedisPool,
 		game_id: u32,
+		player_info: PlayerInfo,
 	) -> Result<TriviadorGame, anyhow::Error> {
 		let game = TriviadorGame {
 			state: TriviadorState {
 				map_name: "MAP_WD".to_string(),
 				game_state: GameState {
 					state: 11,
-					gameround: 0,
+					round: 0,
 					phase: 0,
 				},
 				round_info: RoundInfo {
@@ -61,51 +60,7 @@ impl TriviadorGame {
 				shield_mission: None,
 				war: None,
 			},
-			players: PlayerInfo {
-				p1_name: "xrtxn".to_string(),
-				p2_name: "null".to_string(),
-				p3_name: "null".to_string(),
-				pd1: GamePlayerData {
-					id: 1,
-					xp_points: 14000,
-					xp_level: 15,
-					game_count: 1,
-					game_count_sr: 0,
-					country_id: "hu".to_string(),
-					castle_level: 1,
-					custom_avatar: false,
-					soldier: 0,
-					act_league: 1,
-				},
-				pd2: GamePlayerData {
-					id: -1,
-					xp_points: 14000,
-					xp_level: 15,
-					game_count: 1,
-					game_count_sr: 0,
-					country_id: "hu".to_string(),
-					castle_level: 1,
-					custom_avatar: false,
-					soldier: 8,
-					act_league: 1,
-				},
-				pd3: GamePlayerData {
-					id: -1,
-					xp_points: 14000,
-					xp_level: 15,
-					game_count: 1,
-					game_count_sr: 0,
-					country_id: "hu".to_string(),
-					castle_level: 1,
-					custom_avatar: false,
-					soldier: 6,
-					act_league: 1,
-				},
-				you: "1,2,3".to_string(),
-				game_id: "1".to_string(),
-				room: "1".to_string(),
-				rules: "0,0".to_string(),
-			},
+			players: player_info,
 			cmd: None,
 		};
 
@@ -124,9 +79,6 @@ impl TriviadorGame {
 		if game.cmd.is_some() {
 			warn!("Setting triviador game CMD is NOT NULL, but it won't be set!")
 		}
-		// if game.cmd.is_some() {
-		// 	res += Cmd::set_player_cmd(temp_pool, player_id, game.cmd.unwrap()).await?;
-		// }
 		Ok(res)
 	}
 

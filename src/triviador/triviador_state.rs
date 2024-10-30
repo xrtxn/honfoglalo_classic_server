@@ -176,4 +176,54 @@ impl TriviadorState {
 			.await?;
 		Ok(res)
 	}
+
+	pub(crate) async fn modify_scores(
+		temp_pool: &RedisPool,
+		game_id: u32,
+		by: Vec<i16>,
+	) -> Result<(), anyhow::Error> {
+		let scores = Self::get_field(temp_pool, game_id, "players_points").await?;
+		let mut scores: Vec<i16> = scores
+			.split(',')
+			.map(|x| x.parse::<i16>().unwrap())
+			.collect();
+		for (i, score) in scores.iter_mut().enumerate() {
+			*score += by[i];
+		}
+		TriviadorState::set_field(
+			temp_pool,
+			game_id,
+			"players_points",
+			&format!("{},{},{}", scores[0], scores[1], scores[2]),
+		)
+		.await?;
+		Ok(())
+	}
+
+	pub(crate) async fn modify_player_score(
+		temp_pool: &RedisPool,
+		game_id: u32,
+		rel_id: u8,
+		by: i16,
+	) -> Result<(), anyhow::Error> {
+		let scores = Self::get_field(temp_pool, game_id, "players_points").await?;
+		let mut scores: Vec<i16> = scores
+			.split(',')
+			.map(|x| x.parse::<i16>().unwrap())
+			.collect();
+		for i in 0..3 {
+			if i == rel_id {
+				scores[i as usize] += by;
+				break;
+			}
+		}
+		TriviadorState::set_field(
+			temp_pool,
+			game_id,
+			"players_points",
+			&format!("{},{},{}", scores[0], scores[1], scores[2]),
+		)
+		.await?;
+		Ok(())
+	}
 }

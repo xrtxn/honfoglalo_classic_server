@@ -2,7 +2,6 @@ use std::fmt;
 use std::str::FromStr;
 
 use anyhow::bail;
-use fred::prelude::*;
 use serde::{Serialize, Serializer};
 
 use crate::triviador::available_area::AvailableAreas;

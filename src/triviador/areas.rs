@@ -5,6 +5,7 @@ use fred::clients::RedisPool;
 use fred::error::RedisError;
 use fred::prelude::*;
 use serde::{Serialize, Serializer};
+use tracing::warn;
 
 use crate::triviador::county::County;
 use crate::utils::split_string_n;
@@ -147,14 +148,19 @@ impl Area {
 		temp_pool: &RedisPool,
 		game_id: u32,
 		game_player_id: u8,
-		county: County,
+		county: Option<County>,
 	) -> Result<(), anyhow::Error> {
-		let base = Self {
-			owner: game_player_id,
-			is_fortress: false,
-			value: AreaValue::_200,
-		};
-		Self::modify_area(temp_pool, game_id, (county, base)).await?;
+		if let Some(county) = county {
+			let base = Self {
+				owner: game_player_id,
+				is_fortress: false,
+				value: AreaValue::_200,
+			};
+			Self::modify_area(temp_pool, game_id, (county, base)).await?;
+		} else {
+			warn!("Trying to occupy None county!")
+		}
+
 		Ok(())
 	}
 }

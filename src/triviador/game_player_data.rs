@@ -4,6 +4,8 @@ use std::str::FromStr;
 use anyhow::bail;
 use fred::clients::RedisPool;
 use fred::prelude::*;
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
 use serde::{Serialize, Serializer};
 
 #[derive(Hash, Eq, PartialEq, Clone, Debug)]
@@ -43,6 +45,46 @@ pub struct GamePlayerData {
 }
 
 impl GamePlayerData {
+	pub fn new_bot() -> GamePlayerData {
+		let mut rng = StdRng::from_entropy();
+		// there could be more types
+		let soldier = rng.gen_range(1..8);
+
+		GamePlayerData {
+			id: -1,
+			xp_points: 14000,
+			xp_level: 15,
+			game_count: 1,
+			game_count_sr: 0,
+			country_id: "hu".to_string(),
+			castle_level: 1,
+			custom_avatar: false,
+			soldier,
+			act_league: 1,
+		}
+	}
+
+	pub fn emu_player() -> GamePlayerData {
+		let mut rng = StdRng::from_entropy();
+		let xp_points = rng.gen_range(100..100000);
+		let xp_level = rng.gen_range(1..100);
+		// there could be more types
+		let soldier = rng.gen_range(1..8);
+
+		GamePlayerData {
+			id: 1,
+			xp_points,
+			xp_level,
+			game_count: 1,
+			game_count_sr: 0,
+			country_id: "hu".to_string(),
+			castle_level: 1,
+			custom_avatar: false,
+			soldier,
+			act_league: 1,
+		}
+	}
+
 	pub async fn set_game_player_data(
 		temp_pool: &RedisPool,
 		game_id: u32,

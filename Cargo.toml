@@ -23,6 +23,7 @@ fastrand = "2.1.1"
 futures = "0.3.30"
 #todo check performance
 rand = "0.8"
+log = "0.4.22"
 
 [dev-dependencies]
 serde_test = "1"
