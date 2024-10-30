@@ -17,12 +17,13 @@ use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
 use crate::channels::{ChannelErrorResponse, ChannelType};
 use crate::emulator::Emulator;
+use crate::game_handler::server_game_handler::ServerGameHandler;
+use crate::game_handler::wait_for_game_ready;
 use crate::menu::friend_list::external_data::ExternalFriendsRoot;
 use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::sside;
 use crate::users::{ServerCommand, User};
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
@@ -151,7 +152,7 @@ pub async fn game(
 				}
 				CommandType::StartTriviador(_) => {
 					tokio::spawn(async move {
-						sside::ServerGameHandler::new_friendly(&tmp_db, GAME_ID).await;
+						ServerGameHandler::new_friendly(&tmp_db, GAME_ID).await;
 					});
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -209,7 +210,9 @@ pub async fn game(
 			}
 
 			if !User::is_listen_empty(&tmp_db, PLAYER_ID).await? {
-				sside::wait_for_game_ready(&tmp_db, PLAYER_ID).await;
+				if !User::get_listen_state(&tmp_db, PLAYER_ID).await? {
+					wait_for_game_ready(&tmp_db, PLAYER_ID).await;
+				}
 				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
 					None => {
 						return Err(AppError::from(anyhow!(

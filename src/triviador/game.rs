@@ -22,7 +22,7 @@ pub struct TriviadorGame {
 	#[serde(rename = "STATE")]
 	pub state: TriviadorState,
 	#[serde(rename = "PLAYERS")]
-	pub players: PlayerInfo,
+	pub players: Option<PlayerInfo>,
 	#[serde(rename = "CMD")]
 	pub cmd: Option<Cmd>,
 }
@@ -60,7 +60,7 @@ impl TriviadorGame {
 				shield_mission: None,
 				war: None,
 			},
-			players: player_info,
+			players: Some(player_info),
 			cmd: None,
 		};
 
@@ -75,7 +75,7 @@ impl TriviadorGame {
 		game: TriviadorGame,
 	) -> Result<u8, anyhow::Error> {
 		let mut res = TriviadorState::set_triviador_state(temp_pool, game_id, game.state).await?;
-		res += PlayerInfo::set_info(temp_pool, game_id, game.players).await?;
+		res += PlayerInfo::set_info(temp_pool, game_id, game.players.unwrap()).await?;
 		if game.cmd.is_some() {
 			warn!("Setting triviador game CMD is NOT NULL, but it won't be set!")
 		}
@@ -93,7 +93,7 @@ impl TriviadorGame {
 		let players = PlayerInfo::get_info(temp_pool, game_id).await?;
 		Ok(TriviadorGame {
 			state,
-			players,
+			players: Some(players),
 			cmd: None,
 		})
 	}
