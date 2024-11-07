@@ -6,7 +6,7 @@ use axum::{Extension, Json};
 use fred::clients::RedisPool;
 use fred::prelude::*;
 use sqlx::PgPool;
-use tracing::warn;
+use tracing::{error, trace, warn};
 
 use crate::app::AppError;
 use crate::cdn::countries::CountriesResponse;
@@ -17,8 +17,8 @@ use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
 use crate::channels::{ChannelErrorResponse, ChannelType};
 use crate::emulator::Emulator;
-use crate::game_handler::server_game_handler::ServerGameHandler;
-use crate::game_handler::wait_for_game_ready;
+use crate::game_handlers::server_game_handler::ServerGameHandler;
+use crate::game_handlers::wait_for_game_ready;
 use crate::menu::friend_list::external_data::ExternalFriendsRoot;
 use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
@@ -209,7 +209,41 @@ pub async fn game(
 				))?);
 			}
 
-			if !User::is_listen_empty(&tmp_db, PLAYER_ID).await? {
+			if User::is_listen_empty(&tmp_db, PLAYER_ID).await? {
+				let mut keyspace_rx = {
+					let subscriber = Builder::default_centralized().build()?;
+					subscriber.init().await?;
+					subscriber
+						.psubscribe(format!("__key*__:users:{}:listen_queue", PLAYER_ID))
+						.await?;
+					subscriber.keyspace_event_rx()
+				};
+
+				let mut event = keyspace_rx.recv().await?;
+
+				while event.operation != "rpush" {
+					event = keyspace_rx.recv().await?;
+					continue;
+				}
+				User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
+				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
+					None => {
+						return Err(AppError::from(anyhow!(
+							"Invalid body xml, possibly without header"
+						)));
+					}
+					Some(res) => res,
+				};
+				Ok(format!(
+					"{}\n{}",
+					quick_xml::se::to_string(&ListenResponseHeader {
+						client_id: PLAYER_ID.to_string(),
+						mn: lis.mn,
+						result: 0,
+					})?,
+					remove_root_tag(next_listen)
+				))
+			} else {
 				if !User::get_listen_state(&tmp_db, PLAYER_ID).await? {
 					wait_for_game_ready(&tmp_db, PLAYER_ID).await;
 				}
@@ -221,7 +255,7 @@ pub async fn game(
 					}
 					Some(res) => res,
 				};
-				return Ok(format!(
+				Ok(format!(
 					"{}\n{}",
 					quick_xml::se::to_string(&ListenResponseHeader {
 						client_id: PLAYER_ID.to_string(),
@@ -229,39 +263,8 @@ pub async fn game(
 						result: 0,
 					})?,
 					remove_root_tag(next_listen)
-				));
+				))
 			}
-
-			let subscriber = Builder::default_centralized().build()?;
-			subscriber.init().await?;
-			subscriber
-				.psubscribe(format!("__key*__:users:{}:listen_queue", PLAYER_ID))
-				.await?;
-			let mut keyspace_rx = subscriber.keyspace_event_rx();
-
-			let event = keyspace_rx.recv().await?;
-			if event.operation == "rpush" {
-				User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
-				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
-					None => {
-						return Err(AppError::from(anyhow!(
-							"Invalid body xml, possibly without header"
-						)));
-					}
-					Some(res) => res,
-				};
-				return Ok(format!(
-					"{}\n{}",
-					quick_xml::se::to_string(&ListenResponseHeader {
-						client_id: PLAYER_ID.to_string(),
-						mn: lis.mn,
-						result: 0,
-					})?,
-					remove_root_tag(next_listen)
-				));
-			}
-			// this theoretically never happens but this makes the compiler happy
-			Ok(modified_xml_response(&ChannelErrorResponse {})?)
 		}
 	}
 }

@@ -49,7 +49,7 @@ pub(crate) struct TriviadorState {
 	pub shield_mission: Option<ShieldMission>,
 	#[serde(rename = "@WO")]
 	// war order and rounds
-	pub war: Option<String>,
+	pub war_order: Option<String>,
 }
 
 impl TriviadorState {
@@ -106,11 +106,11 @@ impl TriviadorState {
 			.await?;
 			res += ares;
 		}
-		if state.war.is_some() {
+		if state.war_order.is_some() {
 			let ares: u8 = temp_pool
 				.hset(
 					format!("games:{}:triviador_state", game_id),
-					("war", state.war),
+					("war_order", state.war_order),
 				)
 				.await?;
 			res += ares;
@@ -147,7 +147,7 @@ impl TriviadorState {
 			used_helps: res.get("used_helps").unwrap().to_string(),
 			room_type: res.get("room_type").cloned(),
 			shield_mission,
-			war: res.get("war").cloned(),
+			war_order: res.get("war_order").cloned(),
 		})
 	}
 

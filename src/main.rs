@@ -8,7 +8,7 @@ mod app;
 mod cdn;
 mod channels;
 mod emulator;
-mod game_handler;
+mod game_handlers;
 mod login_screen;
 mod menu;
 mod mobile;

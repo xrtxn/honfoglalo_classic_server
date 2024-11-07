@@ -5,9 +5,9 @@ use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
 
-use crate::game_handler::question_handler::QuestionHandler;
-use crate::game_handler::sgame::SGamePlayer;
-use crate::game_handler::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
+use crate::game_handlers::question_handler::QuestionHandler;
+use crate::game_handlers::s_game::SGamePlayer;
+use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::cmd::Cmd;
 use crate::triviador::county::County;
@@ -15,6 +15,8 @@ use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
+use crate::triviador::triviador_state::TriviadorState;
+use crate::triviador::war_order::WarOrder;
 use crate::users::{ServerCommand, User};
 
 #[derive(PartialEq, Clone)]
@@ -178,20 +180,11 @@ impl AreaHandler {
 			}
 			AreaHandlerPhases::Question => {
 				let mut qh = QuestionHandler::new(self.players.clone(), self.game_id).await;
-				qh.command(temp_pool).await;
-				qh.next();
-				qh.command(temp_pool).await;
-				qh.next();
-				qh.command(temp_pool).await;
-				qh.next();
-				qh.command(temp_pool).await;
-				qh.next();
-				qh.command(temp_pool).await;
+				qh.handle_all(temp_pool).await;
 			}
 			AreaHandlerPhases::SendUpdatedState => {
-				trace!("Sendupdatedstate waiting");
+				// it actually gets sent in the question handler
 				wait_for_game_ready(temp_pool, 1).await;
-				trace!("Sendupdatedstate game ready");
 			}
 		}
 	}
@@ -200,13 +193,6 @@ impl AreaHandler {
 		temp_pool: &RedisPool,
 		game_id: u32,
 	) -> Result<(), anyhow::Error> {
-		// let _ = join!(
-		// 	GameState::set_state(temp_pool, game_id, 2),
-		// 	GameState::set_phase(temp_pool, game_id, 0),
-		// );
-		// if GameState::get_gamestate(temp_pool, game_id).await?.round == 0 {
-		// 	GameState::set_round(temp_pool, game_id, 1).await?;
-		// }
 		let _: u8 = GameState::set_gamestate(
 			temp_pool,
 			game_id,
@@ -227,13 +213,16 @@ impl AreaHandler {
 	) -> Result<(), anyhow::Error> {
 		// sets phase to 1
 		let mut res = GameState::set_phase(temp_pool, game_id, 1).await?;
+		let mut ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
+		ri.mini_phase_num += 1;
 
 		res += RoundInfo::set_roundinfo(
 			temp_pool,
 			game_id,
 			RoundInfo {
-				last_player: game_player_id,
-				next_player: game_player_id,
+				mini_phase_num: ri.mini_phase_num,
+				rel_player_id: game_player_id,
+				attacked_player: None,
 			},
 		)
 		.await?;

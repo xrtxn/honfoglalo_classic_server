@@ -5,8 +5,8 @@ use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{trace, warn};
 
-use crate::game_handler::sgame::SGamePlayer;
-use crate::game_handler::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
+use crate::game_handlers::s_game::SGamePlayer;
+use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::bases::{Base, Bases};
@@ -233,8 +233,9 @@ impl BaseHandler {
 			temp_pool,
 			game_id,
 			RoundInfo {
-				last_player: game_player_id,
-				next_player: game_player_id,
+				mini_phase_num: game_player_id,
+				rel_player_id: game_player_id,
+				attacked_player: None,
 			},
 		)
 		.await?;

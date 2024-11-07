@@ -16,7 +16,7 @@ async-trait = "0.1.80"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing = "0.1.40"
 sqlx = { version = "0.8.1", features = ["postgres", "runtime-tokio"] }
-fred = { version = "9.1.2", features = ["full-tracing"] }
+fred = { version = "9.3.0", features = ["full-tracing"] }
 dotenvy = "0.15.7"
 hex = "0.4.3"
 fastrand = "2.1.1"

@@ -5,10 +5,10 @@ use fred::prelude::*;
 use serde::{Serialize, Serializer};
 
 #[derive(Debug, Clone)]
-// todo find out what this is
 pub struct RoundInfo {
-	pub last_player: u8,
-	pub next_player: u8,
+	pub mini_phase_num: u8,
+	pub rel_player_id: u8,
+	pub attacked_player: Option<u8>,
 }
 
 impl RoundInfo {
@@ -21,8 +21,9 @@ impl RoundInfo {
 			.hset(
 				format!("games:{}:triviador_state:round_info", game_id),
 				[
-					("last_player", round_info.last_player),
-					("next_player", round_info.next_player),
+					("mini_phase_num", round_info.mini_phase_num),
+					("rel_player_id", round_info.rel_player_id),
+					("attacked_player", round_info.attacked_player.unwrap_or(255)),
 				],
 			)
 			.await?;
@@ -37,10 +38,26 @@ impl RoundInfo {
 			.hgetall(format!("games:{}:triviador_state:round_info", game_id))
 			.await?;
 
+		let attacked = res
+			.get("attacked_player")
+			.and_then(|&v| if v == 255 { None } else { Some(v) });
+
 		Ok(RoundInfo {
-			last_player: *res.get("last_player").unwrap(),
-			next_player: *res.get("next_player").unwrap(),
+			mini_phase_num: *res.get("mini_phase_num").unwrap(),
+			rel_player_id: *res.get("rel_player_id").unwrap(),
+			attacked_player: attacked,
 		})
+	}
+
+	pub(crate) async fn incr_mini_phase(
+		temp_pool: &RedisPool,
+		game_id: u32,
+		by: u8,
+	) -> Result<(), anyhow::Error> {
+		let mut ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
+		ri.mini_phase_num += by;
+		RoundInfo::set_roundinfo(temp_pool, game_id, ri).await?;
+		Ok(())
 	}
 }
 
@@ -49,7 +66,7 @@ impl Serialize for RoundInfo {
 	where
 		S: Serializer,
 	{
-		let s = format!("{},{}", self.last_player, self.next_player);
+		let s = format!("{},{}", self.mini_phase_num, self.rel_player_id);
 
 		serializer.serialize_str(&s)
 	}

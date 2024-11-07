@@ -11,9 +11,10 @@ use crate::users::User;
 
 pub(crate) mod area_handler;
 pub(crate) mod base_handler;
+pub(crate) mod battle_handler;
 pub(crate) mod question_handler;
+pub(crate) mod s_game;
 pub(crate) mod server_game_handler;
-pub(crate) mod sgame;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum PlayerType {

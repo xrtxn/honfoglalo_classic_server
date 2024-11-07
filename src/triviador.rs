@@ -12,3 +12,4 @@ pub(crate) mod round_info;
 pub(crate) mod selection;
 pub(crate) mod shield_mission;
 pub(crate) mod triviador_state;
+pub(crate) mod war_order;

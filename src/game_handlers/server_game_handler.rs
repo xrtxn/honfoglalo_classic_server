@@ -1,7 +1,7 @@
 use fred::clients::RedisPool;
 
-use crate::game_handler::sgame::{SGame, SGamePlayer};
-use crate::game_handler::PlayerType;
+use crate::game_handlers::s_game::{SGame, SGamePlayer};
+use crate::game_handlers::PlayerType;
 use crate::triviador::game::TriviadorGame;
 use crate::triviador::game_player_data::GamePlayerData;
 use crate::triviador::player_info::PlayerInfo;

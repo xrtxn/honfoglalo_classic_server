@@ -1,6 +1,6 @@
-use log::error;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
+use tracing::{error, trace};
 
 use crate::emulator::Emulator;
 use crate::triviador::cmd::Cmd;
@@ -17,7 +17,7 @@ pub(crate) struct QuestionStageResponse {
 	#[serde(rename = "CMD")]
 	pub cmd: Option<Cmd>,
 	#[serde(rename = "ANSWERRESULT")]
-	pub answer_result: Option<AnswerResult>,
+	pub answer_result: Option<QuestionAnswerResult>,
 }
 
 impl QuestionStageResponse {
@@ -32,7 +32,7 @@ impl QuestionStageResponse {
 
 	pub(crate) fn new_answer_result(
 		state: TriviadorState,
-		answer_result: AnswerResult,
+		answer_result: QuestionAnswerResult,
 	) -> QuestionStageResponse {
 		QuestionStageResponse {
 			state,
@@ -122,7 +122,7 @@ impl Emulator for Question {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct AnswerResult {
+pub struct QuestionAnswerResult {
 	#[serde(rename = "@PLAYER1")]
 	pub player1: Option<u8>,
 	#[serde(rename = "@PLAYER2")]
@@ -133,9 +133,9 @@ pub struct AnswerResult {
 	pub good: Option<u8>,
 }
 
-impl AnswerResult {
-	pub(crate) fn new() -> AnswerResult {
-		AnswerResult {
+impl QuestionAnswerResult {
+	pub(crate) fn new() -> QuestionAnswerResult {
+		QuestionAnswerResult {
 			player1: None,
 			player2: None,
 			player3: None,
@@ -153,6 +153,7 @@ impl AnswerResult {
 			}
 		}
 	}
+
 	pub(crate) fn get_player(&self, rel_id: u8) -> Option<u8> {
 		match rel_id {
 			1 => self.player1,
@@ -164,6 +165,7 @@ impl AnswerResult {
 			}
 		}
 	}
+
 	pub(crate) fn is_player_correct(&self, rel_id: u8) -> bool {
 		let correct_answer;
 		match self.good {
@@ -180,4 +182,126 @@ impl AnswerResult {
 			None => false,
 		}
 	}
+}
+
+#[skip_serializing_none]
+#[derive(Serialize)]
+#[serde(rename = "ROOT")]
+pub struct TipStageResponse {
+	#[serde(rename = "STATE")]
+	pub state: TriviadorState,
+	#[serde(rename = "CMD")]
+	pub cmd: Option<Cmd>,
+	#[serde(rename = "TIPQUESTION")]
+	pub question: Option<Question>,
+	#[serde(rename = "TIPINFO")]
+	pub tip_info: Option<TipInfo>,
+	#[serde(rename = "TIPRESULT")]
+	pub tip_result: Option<TipResult>,
+}
+
+impl TipStageResponse {
+	pub(crate) fn new_tip(state: TriviadorState, question: Question) -> TipStageResponse {
+		TipStageResponse {
+			state,
+			cmd: Some(Cmd::tip_command(15)),
+			question: Some(question),
+			tip_info: None,
+			tip_result: None,
+		}
+	}
+
+	pub(crate) fn new_tip_result(
+		state: TriviadorState,
+		tip_info: TipInfo,
+		tip_result: TipResult,
+	) -> TipStageResponse {
+		TipStageResponse {
+			state,
+			cmd: None,
+			question: None,
+			tip_info: Some(tip_info),
+			tip_result: Some(tip_result),
+		}
+	}
+}
+
+// floats are cut to 3 decimal places
+// closeness is similar to percentage (100-1)
+#[skip_serializing_none]
+#[derive(Serialize, Deserialize)]
+pub struct TipInfo {
+	#[serde(rename = "@TIMEORDER")]
+	// the order of player answers (123)
+	pub timeorder: Vec<u8>,
+	#[serde(rename = "@T1")]
+	pub player_1_time: Option<f32>,
+	#[serde(rename = "@V1")]
+	pub player_1_tip: Option<i32>,
+	#[serde(rename = "@A1")]
+	pub player_1_closeness: Option<String>,
+	#[serde(rename = "@T2")]
+	pub player_2_time: Option<f32>,
+	#[serde(rename = "@V2")]
+	pub player_2_tip: Option<i32>,
+	#[serde(rename = "@A2")]
+	pub player_2_closeness: Option<String>,
+	#[serde(rename = "@T3")]
+	pub player_3_time: Option<f32>,
+	#[serde(rename = "@V3")]
+	pub player_3_tip: Option<i32>,
+	#[serde(rename = "@A3")]
+	pub player_3_closeness: Option<String>,
+}
+
+impl TipInfo {
+	pub(crate) fn new() -> TipInfo {
+		TipInfo {
+			timeorder: Vec::with_capacity(3),
+			player_1_time: None,
+			player_1_tip: None,
+			player_1_closeness: None,
+			player_2_time: None,
+			player_2_tip: None,
+			player_2_closeness: None,
+			player_3_time: None,
+			player_3_tip: None,
+			player_3_closeness: None,
+		}
+	}
+
+	pub(crate) fn add_player_tip(&mut self, rel_id: u8, tip: i32, time: f32) {
+		self.timeorder.push(rel_id);
+		// todo implement closeness calculation
+		match rel_id {
+			1 => {
+				self.player_1_tip = Some(tip);
+				self.player_1_time = Some(time);
+				self.player_1_closeness = Some("10".to_string());
+			}
+			2 => {
+				self.player_2_tip = Some(tip);
+				self.player_2_time = Some(time);
+				self.player_2_closeness = Some("20".to_string());
+			}
+			3 => {
+				self.player_3_tip = Some(tip);
+				self.player_3_time = Some(time);
+				self.player_3_closeness = Some("30".to_string());
+			}
+			_ => {
+				error!("Unable to set player tip, invalid player id: {}", rel_id);
+			}
+		}
+	}
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct TipResult {
+	#[serde(rename = "@WINNER")]
+	pub winner: String,
+	#[serde(rename = "@SECOND")]
+	pub second: String,
+	#[serde(rename = "@GOOD")]
+	pub good: String,
 }

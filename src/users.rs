@@ -9,6 +9,7 @@ pub struct User {}
 pub enum ServerCommand {
 	SelectArea(u8),
 	QuestionAnswer(u8),
+	TipAnswer(i32),
 }
 
 impl Display for ServerCommand {
@@ -18,9 +19,13 @@ impl Display for ServerCommand {
 			ServerCommand::QuestionAnswer(answer_num) => {
 				write!(f, "answer,{}", answer_num)
 			}
+			ServerCommand::TipAnswer(tip) => {
+				write!(f, "tip,{}", tip)
+			}
 		}
 	}
 }
+
 impl FromStr for ServerCommand {
 	type Err = anyhow::Error;
 
@@ -29,6 +34,7 @@ impl FromStr for ServerCommand {
 		match parts[0] {
 			"select_area" => Ok(ServerCommand::SelectArea(parts[1].parse()?)),
 			"answer" => Ok(ServerCommand::QuestionAnswer(parts[1].parse()?)),
+			"tip" => Ok(ServerCommand::TipAnswer(parts[1].parse()?)),
 			_ => Err(anyhow::anyhow!("Invalid command")),
 		}
 	}

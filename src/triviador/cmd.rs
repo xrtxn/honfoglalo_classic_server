@@ -36,6 +36,14 @@ impl Cmd {
 		}
 	}
 
+	pub fn tip_command(timeout: u8) -> Cmd {
+		Cmd {
+			command: "TIP".to_string(),
+			available: None,
+			timeout,
+		}
+	}
+
 	pub async fn set_player_cmd(
 		temp_pool: &RedisPool,
 		player_id: i32,
