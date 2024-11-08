@@ -5,8 +5,9 @@ use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
 
-use crate::game_handlers::area_handler::AreaHandler;
-use crate::game_handlers::question_handler::{QuestionHandler, TipRequestHandler};
+use crate::game_handlers::question_handler::{
+	QuestionHandler, QuestionHandlerType, TipRequestHandler,
+};
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
@@ -20,6 +21,8 @@ use crate::users::{ServerCommand, User};
 
 #[derive(PartialEq, Clone)]
 enum BattleHandlerPhases {
+	// invisible
+	Setup,
 	// 4,1,0
 	Announcement,
 	// 4,1,1
@@ -36,11 +39,12 @@ enum BattleHandlerPhases {
 
 impl BattleHandlerPhases {
 	fn new() -> BattleHandlerPhases {
-		BattleHandlerPhases::AskAttackingArea
+		BattleHandlerPhases::Announcement
 	}
 
 	fn next(&mut self) {
 		match self {
+			BattleHandlerPhases::Setup => *self = BattleHandlerPhases::Announcement,
 			BattleHandlerPhases::Announcement => *self = BattleHandlerPhases::AskAttackingArea,
 			BattleHandlerPhases::AskAttackingArea => {
 				*self = BattleHandlerPhases::AttackedAreaResponse
@@ -84,21 +88,19 @@ impl BattleHandler {
 		self.state = BattleHandlerPhases::AskAttackingArea;
 	}
 
-	pub(crate) async fn command(&mut self, temp_pool: &RedisPool, active_player: SGamePlayer) {
+	pub(crate) async fn command(
+		&mut self,
+		temp_pool: &RedisPool,
+		active_player: Option<SGamePlayer>,
+	) {
 		match self.state {
+			BattleHandlerPhases::Setup => {
+				Self::battle_setup(temp_pool, self.game_id).await.unwrap();
+			}
 			BattleHandlerPhases::Announcement => {
-				let game_state = GameState::get_gamestate(temp_pool, self.game_id)
+				GameState::set_phase(temp_pool, self.game_id, 0)
 					.await
 					.unwrap();
-				if game_state.round == 0 {
-					Self::battle_announcement(temp_pool, self.game_id)
-						.await
-						.unwrap();
-				} else {
-					GameState::set_phase(temp_pool, self.game_id, 0)
-						.await
-						.unwrap();
-				}
 				for player in self.players.iter().filter(|x| x.is_player()) {
 					send_player_commongame(temp_pool, self.game_id, player.id).await;
 				}
@@ -107,6 +109,7 @@ impl BattleHandler {
 				trace!("Battle announcement game ready");
 			}
 			BattleHandlerPhases::AskAttackingArea => {
+				let active_player = active_player.unwrap();
 				Self::ask_area_battle_backend(temp_pool, self.game_id, active_player.rel_id)
 					.await
 					.unwrap();
@@ -130,6 +133,7 @@ impl BattleHandler {
 				trace!("Send select cmd game ready");
 			}
 			BattleHandlerPhases::AttackedAreaResponse => {
+				let active_player = active_player.unwrap();
 				if !active_player.is_player() {
 					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
 						.await
@@ -182,7 +186,12 @@ impl BattleHandler {
 				trace!("Common game ready");
 			}
 			BattleHandlerPhases::Question => {
-				let mut qh = TipRequestHandler::new(self.players.clone(), self.game_id).await;
+				let mut qh = QuestionHandler::new(
+					QuestionHandlerType::Battle,
+					self.players.clone(),
+					self.game_id,
+				)
+				.await;
 				qh.handle_all(temp_pool).await;
 			}
 			BattleHandlerPhases::SendUpdatedState => {
@@ -191,7 +200,7 @@ impl BattleHandler {
 		}
 	}
 
-	async fn battle_announcement(temp_pool: &RedisPool, game_id: u32) -> Result<(), anyhow::Error> {
+	async fn battle_setup(temp_pool: &RedisPool, game_id: u32) -> Result<(), anyhow::Error> {
 		let _: u8 = GameState::set_gamestate(
 			temp_pool,
 			game_id,
@@ -212,12 +221,14 @@ impl BattleHandler {
 	) -> Result<(), anyhow::Error> {
 		// sets phase to 1
 		let mut res = GameState::set_phase(temp_pool, game_id, 1).await?;
+		let mut ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
+		ri.mini_phase_num += 1;
 
 		res += RoundInfo::set_roundinfo(
 			temp_pool,
 			game_id,
 			RoundInfo {
-				mini_phase_num: game_player_id,
+				mini_phase_num: ri.mini_phase_num,
 				rel_player_id: game_player_id,
 				attacked_player: Some(0),
 			},

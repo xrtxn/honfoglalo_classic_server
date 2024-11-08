@@ -5,7 +5,7 @@ use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
 
-use crate::game_handlers::question_handler::QuestionHandler;
+use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType};
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
@@ -20,7 +20,9 @@ use crate::triviador::war_order::WarOrder;
 use crate::users::{ServerCommand, User};
 
 #[derive(PartialEq, Clone)]
-enum AreaHandlerPhases {
+enum AreaConquerHandlerPhases {
+	// invisible
+	Setup,
 	// 2,1,0
 	Announcement,
 	// 2,1,1
@@ -33,37 +35,46 @@ enum AreaHandlerPhases {
 	SendUpdatedState,
 }
 
-impl AreaHandlerPhases {
-	fn new() -> AreaHandlerPhases {
-		AreaHandlerPhases::AskDesiredArea
+impl AreaConquerHandlerPhases {
+	fn new() -> AreaConquerHandlerPhases {
+		AreaConquerHandlerPhases::Announcement
 	}
 
 	fn next(&mut self) {
 		match self {
-			AreaHandlerPhases::Announcement => *self = AreaHandlerPhases::AskDesiredArea,
-			AreaHandlerPhases::AskDesiredArea => *self = AreaHandlerPhases::DesiredAreaResponse,
-			AreaHandlerPhases::DesiredAreaResponse => *self = AreaHandlerPhases::Question,
-			AreaHandlerPhases::Question => *self = AreaHandlerPhases::SendUpdatedState,
-			AreaHandlerPhases::SendUpdatedState => {
+			AreaConquerHandlerPhases::Setup => *self = AreaConquerHandlerPhases::Announcement,
+			AreaConquerHandlerPhases::Announcement => {
+				*self = AreaConquerHandlerPhases::AskDesiredArea
+			}
+			AreaConquerHandlerPhases::AskDesiredArea => {
+				*self = AreaConquerHandlerPhases::DesiredAreaResponse
+			}
+			AreaConquerHandlerPhases::DesiredAreaResponse => {
+				*self = AreaConquerHandlerPhases::Question
+			}
+			AreaConquerHandlerPhases::Question => {
+				*self = AreaConquerHandlerPhases::SendUpdatedState
+			}
+			AreaConquerHandlerPhases::SendUpdatedState => {
 				*self = {
 					error!("Overstepped the phases, returning to AskDesiredArea");
-					AreaHandlerPhases::AskDesiredArea
+					AreaConquerHandlerPhases::AskDesiredArea
 				}
 			}
 		}
 	}
 }
 
-pub(crate) struct AreaHandler {
-	state: AreaHandlerPhases,
+pub(crate) struct AreaConquerHandler {
+	state: AreaConquerHandlerPhases,
 	players: Vec<SGamePlayer>,
 	game_id: u32,
 }
 
-impl AreaHandler {
-	pub(crate) fn new(players: Vec<SGamePlayer>, game_id: u32) -> AreaHandler {
-		AreaHandler {
-			state: AreaHandlerPhases::Announcement,
+impl AreaConquerHandler {
+	pub(crate) fn new(players: Vec<SGamePlayer>, game_id: u32) -> AreaConquerHandler {
+		AreaConquerHandler {
+			state: AreaConquerHandlerPhases::Setup,
 			players,
 			game_id,
 		}
@@ -74,28 +85,28 @@ impl AreaHandler {
 	}
 
 	pub(crate) fn new_round_pick(&mut self) {
-		self.state = AreaHandlerPhases::Announcement;
+		self.state = AreaConquerHandlerPhases::Announcement;
 	}
 
 	pub(crate) fn new_player_pick(&mut self) {
-		self.state = AreaHandlerPhases::AskDesiredArea;
+		self.state = AreaConquerHandlerPhases::AskDesiredArea;
 	}
 
-	pub(crate) async fn command(&mut self, temp_pool: &RedisPool, active_player: SGamePlayer) {
+	pub(crate) async fn command(
+		&mut self,
+		temp_pool: &RedisPool,
+		active_player: Option<SGamePlayer>,
+	) {
 		match self.state {
-			AreaHandlerPhases::Announcement => {
-				let game_state = GameState::get_gamestate(temp_pool, self.game_id)
+			AreaConquerHandlerPhases::Setup => {
+				Self::area_select_setup(temp_pool, self.game_id)
 					.await
 					.unwrap();
-				if game_state.round == 0 {
-					Self::area_select_announcement(temp_pool, self.game_id)
-						.await
-						.unwrap();
-				} else {
-					GameState::set_phase(temp_pool, self.game_id, 0)
-						.await
-						.unwrap();
-				}
+			}
+			AreaConquerHandlerPhases::Announcement => {
+				GameState::set_phase(temp_pool, self.game_id, 0)
+					.await
+					.unwrap();
 				for player in self.players.iter().filter(|x| x.is_player()) {
 					send_player_commongame(temp_pool, self.game_id, player.id).await;
 				}
@@ -103,7 +114,8 @@ impl AreaHandler {
 				wait_for_game_ready(temp_pool, 1).await;
 				trace!("Area select announcement game ready");
 			}
-			AreaHandlerPhases::AskDesiredArea => {
+			AreaConquerHandlerPhases::AskDesiredArea => {
+				let active_player = active_player.unwrap();
 				Self::player_area_select_backend(temp_pool, self.game_id, active_player.rel_id)
 					.await
 					.unwrap();
@@ -126,7 +138,8 @@ impl AreaHandler {
 				wait_for_game_ready(temp_pool, 1).await;
 				trace!("Send select cmd game ready");
 			}
-			AreaHandlerPhases::DesiredAreaResponse => {
+			AreaConquerHandlerPhases::DesiredAreaResponse => {
+				let active_player = active_player.unwrap();
 				if !active_player.is_player() {
 					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
 						.await
@@ -135,7 +148,7 @@ impl AreaHandler {
 
 					let mut rng = StdRng::from_entropy();
 					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-					AreaHandler::new_area_selected(
+					AreaConquerHandler::new_area_selected(
 						temp_pool,
 						self.game_id,
 						random_area as u8,
@@ -153,7 +166,7 @@ impl AreaHandler {
 						.unwrap()
 					{
 						ServerCommand::SelectArea(val) => {
-							AreaHandler::new_area_selected(
+							AreaConquerHandler::new_area_selected(
 								temp_pool,
 								self.game_id,
 								val,
@@ -167,7 +180,7 @@ impl AreaHandler {
 						}
 					}
 				}
-				AreaHandler::area_selected_stage(temp_pool, self.game_id)
+				AreaConquerHandler::area_selected_stage(temp_pool, self.game_id)
 					.await
 					.unwrap();
 
@@ -178,21 +191,23 @@ impl AreaHandler {
 				wait_for_game_ready(temp_pool, 1).await;
 				trace!("Common game ready");
 			}
-			AreaHandlerPhases::Question => {
-				let mut qh = QuestionHandler::new(self.players.clone(), self.game_id).await;
+			AreaConquerHandlerPhases::Question => {
+				let mut qh = QuestionHandler::new(
+					QuestionHandlerType::AreaConquer,
+					self.players.clone(),
+					self.game_id,
+				)
+				.await;
 				qh.handle_all(temp_pool).await;
 			}
-			AreaHandlerPhases::SendUpdatedState => {
+			AreaConquerHandlerPhases::SendUpdatedState => {
 				// it actually gets sent in the question handler
 				wait_for_game_ready(temp_pool, 1).await;
 			}
 		}
 	}
 
-	async fn area_select_announcement(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<(), anyhow::Error> {
+	async fn area_select_setup(temp_pool: &RedisPool, game_id: u32) -> Result<(), anyhow::Error> {
 		let _: u8 = GameState::set_gamestate(
 			temp_pool,
 			game_id,

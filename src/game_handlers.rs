@@ -9,9 +9,10 @@ use crate::triviador::cmd::Cmd;
 use crate::triviador::game::TriviadorGame;
 use crate::users::User;
 
-pub(crate) mod area_handler;
+pub(crate) mod area_conquer_handler;
 pub(crate) mod base_handler;
 pub(crate) mod battle_handler;
+mod fill_remaining_handler;
 pub(crate) mod question_handler;
 pub(crate) mod s_game;
 pub(crate) mod server_game_handler;

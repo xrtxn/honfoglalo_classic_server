@@ -104,7 +104,8 @@ impl Question {
 			option_4: opt_4,
 			icon_url: "client/assets/icons/pokeball.png".to_string(),
 			color_code: "F3C5C3".to_string(),
-			help: "{HALF:2000,ANSWERS:2000}".to_string(),
+			// {HALF:2000,ANSWERS:2000}
+			help: "{}".to_string(),
 		}
 	}
 }
@@ -304,4 +305,13 @@ pub struct TipResult {
 	pub second: String,
 	#[serde(rename = "@GOOD")]
 	pub good: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename = "TIP")]
+pub struct PlayerTipResponse {
+	#[serde(rename = "@TIP")]
+	pub tip: i32,
+	#[serde(rename = "@HUMAN")]
+	pub human: bool,
 }

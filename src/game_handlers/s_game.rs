@@ -1,9 +1,10 @@
 use fred::clients::RedisPool;
 use tracing::{error, trace};
 
-use crate::game_handlers::area_handler::AreaHandler;
+use crate::game_handlers::area_conquer_handler::AreaConquerHandler;
 use crate::game_handlers::base_handler::BaseHandler;
 use crate::game_handlers::battle_handler::BattleHandler;
+use crate::game_handlers::fill_remaining_handler::FillRemainingHandler;
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready, PlayerType};
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
@@ -13,7 +14,8 @@ use crate::triviador::war_order::WarOrder;
 pub(crate) struct SGame {
 	game_state: SGameState,
 	base_handler: BaseHandler,
-	area_handler: AreaHandler,
+	area_handler: AreaConquerHandler,
+	fill_remaining_handler: FillRemainingHandler,
 	battle_handler: BattleHandler,
 	players: Vec<SGamePlayer>,
 	game_id: u32,
@@ -26,7 +28,8 @@ impl SGame {
 		SGame {
 			game_state: SGameState::new(),
 			base_handler: BaseHandler::new(players.clone(), game_id),
-			area_handler: AreaHandler::new(players.clone(), game_id),
+			area_handler: AreaConquerHandler::new(players.clone(), game_id),
+			fill_remaining_handler: FillRemainingHandler::new(players.clone(), game_id),
 			battle_handler: BattleHandler::new(players.clone(), game_id),
 			players,
 			game_id,
@@ -64,17 +67,6 @@ impl SGame {
 				Selection::clear(temp_pool, self.game_id).await.unwrap()
 			}
 			SGameState::AreaSelection => {
-				RoundInfo::set_roundinfo(
-					temp_pool,
-					self.game_id,
-					RoundInfo {
-						mini_phase_num: 1,
-						rel_player_id: 1,
-						attacked_player: None,
-					},
-				)
-				.await
-				.unwrap();
 				WarOrder::set_redis(
 					&WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT),
 					temp_pool,
@@ -82,26 +74,26 @@ impl SGame {
 				)
 				.await
 				.unwrap();
+				// setup area handler
+				self.area_handler.command(temp_pool, None).await;
 				let mut mini_phase_num = 0;
 				// todo this is 6
-				for _ in 0..1 {
+				for _ in 0..2 {
 					// announcement for all players
-					for player in self.players.iter().filter(|x| x.is_player()) {
-						self.area_handler.new_round_pick();
-						self.area_handler.command(temp_pool, player.clone()).await;
-						RoundInfo::set_roundinfo(
-							temp_pool,
-							self.game_id,
-							RoundInfo {
-								mini_phase_num: 0,
-								rel_player_id: 0,
-								attacked_player: None,
-							},
-						)
-						.await
-						.unwrap();
-					}
+					self.area_handler.new_round_pick();
+					self.area_handler.command(temp_pool, None).await;
 					let war_order = WarOrder::get_redis(temp_pool, self.game_id).await.unwrap();
+					RoundInfo::set_roundinfo(
+						temp_pool,
+						self.game_id,
+						RoundInfo {
+							mini_phase_num: 0,
+							rel_player_id: 0,
+							attacked_player: None,
+						},
+					)
+					.await
+					.unwrap();
 					// select an area for everyone
 					for rel_player in war_order
 						.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
@@ -109,13 +101,15 @@ impl SGame {
 					{
 						let player = self.get_player_by_rel_id(rel_player);
 						self.area_handler.new_player_pick();
-						self.area_handler.command(temp_pool, player.clone()).await;
+						self.area_handler
+							.command(temp_pool, Some(player.clone()))
+							.await;
 						self.area_handler.next();
-						self.area_handler.command(temp_pool, player).await;
+						self.area_handler.command(temp_pool, Some(player)).await;
 					}
 					self.area_handler.next();
 					self.area_handler
-						.command(temp_pool, self.players[0].clone())
+						.command(temp_pool, Some(self.players[0].clone()))
 						.await;
 					GameState::incr_round(temp_pool, self.game_id, 1)
 						.await
@@ -128,29 +122,63 @@ impl SGame {
 			}
 			SGameState::Battle => {
 				// todo this is 6
+				WarOrder::set_redis(
+					&WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT),
+					temp_pool,
+					self.game_id,
+				)
+				.await
+				.unwrap();
+				// setup battle handler
+				self.area_handler.command(temp_pool, None).await;
+				let mut mini_phase_num = 0;
 				for _ in 0..2 {
 					GameState::set_round(temp_pool, self.game_id, 0)
 						.await
 						.unwrap();
+					RoundInfo::set_roundinfo(
+						temp_pool,
+						self.game_id,
+						RoundInfo {
+							mini_phase_num: 0,
+							rel_player_id: 0,
+							attacked_player: Some(0),
+						},
+					)
+					.await
+					.unwrap();
 					// announcement for all players
-					for player in self.players.iter().filter(|x| x.is_player()) {
-						self.battle_handler.new_round_pick();
-						self.battle_handler.command(temp_pool, player.clone()).await;
-					}
+					self.area_handler.new_round_pick();
+					self.area_handler.command(temp_pool, None).await;
+
+					let war_order = WarOrder::get_redis(temp_pool, self.game_id).await.unwrap();
+
 					// select an area for everyone
-					for player in self.players.iter() {
+					for rel_player in war_order
+						.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
+						.unwrap()
+					{
+						let player = self.get_player_by_rel_id(rel_player);
 						self.battle_handler.new_player_pick();
-						self.battle_handler.command(temp_pool, player.clone()).await;
+						self.battle_handler
+							.command(temp_pool, Some(player.clone()))
+							.await;
 						self.battle_handler.next();
-						self.battle_handler.command(temp_pool, player.clone()).await;
+						self.battle_handler
+							.command(temp_pool, Some(player.clone()))
+							.await;
+						self.battle_handler.next();
+						self.battle_handler
+							.command(temp_pool, Some(self.players[0].clone()))
+							.await;
 					}
-					self.battle_handler.next();
-					self.battle_handler
-						.command(temp_pool, self.players[0].clone())
-						.await;
+					RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
+						.await
+						.unwrap();
 					GameState::incr_round(temp_pool, self.game_id, 1)
 						.await
 						.unwrap();
+					mini_phase_num += Self::PLAYER_COUNT;
 				}
 			}
 			SGameState::EndScreen => {

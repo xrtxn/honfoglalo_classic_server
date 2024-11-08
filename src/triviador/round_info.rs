@@ -66,7 +66,13 @@ impl Serialize for RoundInfo {
 	where
 		S: Serializer,
 	{
-		let s = format!("{},{}", self.mini_phase_num, self.rel_player_id);
+		let s = match self.attacked_player {
+			Some(attacked) => format!(
+				"{},{},{}",
+				self.mini_phase_num, self.rel_player_id, attacked
+			),
+			None => format!("{},{}", self.mini_phase_num, self.rel_player_id),
+		};
 
 		serializer.serialize_str(&s)
 	}

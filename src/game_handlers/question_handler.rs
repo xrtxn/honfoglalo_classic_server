@@ -16,6 +16,11 @@ use crate::triviador::selection::Selection;
 use crate::triviador::triviador_state::TriviadorState;
 use crate::users::{ServerCommand, User};
 
+pub(crate) enum QuestionHandlerType {
+	AreaConquer,
+	Battle,
+}
+
 #[derive(PartialEq, Clone)]
 enum QuestionHandlerPhases {
 	// 2,1,4
@@ -58,6 +63,7 @@ impl QuestionHandlerPhases {
 }
 
 pub(crate) struct QuestionHandler {
+	question_handler_type: QuestionHandlerType,
 	state: QuestionHandlerPhases,
 	players: Vec<SGamePlayer>,
 	game_id: u32,
@@ -77,8 +83,13 @@ impl QuestionHandler {
 		self.command(temp_pool).await;
 	}
 
-	pub(crate) async fn new(players: Vec<SGamePlayer>, game_id: u32) -> QuestionHandler {
+	pub(crate) async fn new(
+		question_handler_type: QuestionHandlerType,
+		players: Vec<SGamePlayer>,
+		game_id: u32,
+	) -> QuestionHandler {
 		QuestionHandler {
+			question_handler_type,
 			state: QuestionHandlerPhases::SendQuestion,
 			players,
 			game_id,
@@ -93,9 +104,16 @@ impl QuestionHandler {
 	pub(crate) async fn command(&mut self, temp_pool: &RedisPool) {
 		match self.state {
 			QuestionHandlerPhases::SendQuestion => {
-				GameState::set_phase(temp_pool, self.game_id, 4)
-					.await
-					.unwrap();
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						GameState::set_phase(temp_pool, self.game_id, 4)
+							.await
+							.unwrap();
+					}
+					QuestionHandlerType::Battle => {
+						todo!()
+					}
+				}
 				let q = Question::emulate();
 				let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
 					.await
@@ -129,21 +147,35 @@ impl QuestionHandler {
 				}
 				for player in self.players.iter().filter(|x| !x.is_player()) {
 					let mut rng = StdRng::from_entropy();
-					let random_answer: u8 = rng.gen_range(1..4);
+					let random_answer: u8 = rng.gen_range(1..5);
 					self.answer_result.set_player(player.rel_id, random_answer);
 				}
 			}
 			QuestionHandlerPhases::SendCorrectAnswer => {
 				info!("todo but not necessary");
-				GameState::incr_phase(temp_pool, self.game_id, 1)
-					.await
-					.unwrap();
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						GameState::incr_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
+					}
+					QuestionHandlerType::Battle => {
+						todo!()
+					}
+				}
 			}
 			QuestionHandlerPhases::SendPlayerAnswers => {
 				self.answer_result.good = Some(1);
-				GameState::incr_phase(temp_pool, self.game_id, 1)
-					.await
-					.unwrap();
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						GameState::incr_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
+					}
+					QuestionHandlerType::Battle => {
+						todo!()
+					}
+				}
 				let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
 					.await
 					.unwrap();
@@ -164,9 +196,16 @@ impl QuestionHandler {
 				wait_for_game_ready(temp_pool, 1).await;
 			}
 			QuestionHandlerPhases::SendUpdatedState => {
-				GameState::incr_phase(temp_pool, self.game_id, 1)
-					.await
-					.unwrap();
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						GameState::incr_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
+					}
+					QuestionHandlerType::Battle => {
+						todo!()
+					}
+				}
 				let selection = Selection::get_redis(temp_pool, self.game_id).await.unwrap();
 				let mut score_increase = Vec::with_capacity(3);
 				for player in self.players.clone() {
@@ -203,13 +242,21 @@ impl QuestionHandler {
 	}
 }
 
+enum TipHandlerType {
+	Fill,
+	Battle,
+}
+
 enum TipHandlerPhases {
-	// 4,1,10
+	// Fill: 3,1,1
+	// Battle: 4,1,10
 	SendTipRequest,
 	GetTipResponse,
-	// 4,1,12
+	// Fill: 3,1,3
+	// Battle: 4,1,12
 	SendPlayerAnswers,
-	// 4,1,21
+	// Fill: 3,1,6
+	// Battle: 4,1,21
 	SendUpdatedState,
 }
 
@@ -232,6 +279,7 @@ impl TipHandlerPhases {
 }
 
 pub(crate) struct TipRequestHandler {
+	tip_handler_type: TipHandlerType,
 	state: TipHandlerPhases,
 	players: Vec<SGamePlayer>,
 	game_id: u32,
@@ -246,9 +294,18 @@ impl TipRequestHandler {
 	pub(crate) async fn command(&mut self, temp_pool: &RedisPool) {
 		match self.state {
 			TipHandlerPhases::SendTipRequest => {
-				GameState::set_phase(temp_pool, self.game_id, 10)
-					.await
-					.unwrap();
+				match self.tip_handler_type {
+					TipHandlerType::Fill => {
+						GameState::set_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
+					}
+					TipHandlerType::Battle => {
+						GameState::set_phase(temp_pool, self.game_id, 10)
+							.await
+							.unwrap();
+					}
+				}
 				let q = Question::emulate();
 				let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
 					.await
@@ -286,8 +343,12 @@ impl TipRequestHandler {
 					self.answer_result.set_player(player.rel_id, random_answer);
 				}
 			}
-			TipHandlerPhases::SendPlayerAnswers => {}
-			TipHandlerPhases::SendUpdatedState => {}
+			TipHandlerPhases::SendPlayerAnswers => {
+				todo!()
+			}
+			TipHandlerPhases::SendUpdatedState => {
+				todo!()
+			}
 		}
 	}
 
@@ -301,8 +362,13 @@ impl TipRequestHandler {
 		self.command(temp_pool).await;
 	}
 
-	pub(crate) async fn new(players: Vec<SGamePlayer>, game_id: u32) -> TipRequestHandler {
+	pub(crate) async fn new(
+		stage_type: TipHandlerType,
+		players: Vec<SGamePlayer>,
+		game_id: u32,
+	) -> TipRequestHandler {
 		TipRequestHandler {
+			tip_handler_type: stage_type,
 			state: TipHandlerPhases::SendTipRequest,
 			players,
 			game_id,
