@@ -57,6 +57,7 @@ impl TriviadorGame {
 					areas: HashSet::new(),
 				}),
 				used_helps: "0".to_string(),
+				fill_round: None,
 				room_type: None,
 				shield_mission: None,
 				war_order: None,

@@ -1,4 +1,6 @@
-use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
 use tracing::{error, trace};
 
@@ -186,7 +188,7 @@ impl QuestionAnswerResult {
 }
 
 #[skip_serializing_none]
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename = "ROOT")]
 pub struct TipStageResponse {
 	#[serde(rename = "STATE")]
@@ -202,6 +204,16 @@ pub struct TipStageResponse {
 }
 
 impl TipStageResponse {
+	pub(crate) fn new(state: TriviadorState) -> TipStageResponse {
+		TipStageResponse {
+			state,
+			cmd: None,
+			question: None,
+			tip_info: None,
+			tip_result: None,
+		}
+	}
+
 	pub(crate) fn new_tip(state: TriviadorState, question: Question) -> TipStageResponse {
 		TipStageResponse {
 			state,
@@ -215,14 +227,26 @@ impl TipStageResponse {
 	pub(crate) fn new_tip_result(
 		state: TriviadorState,
 		tip_info: TipInfo,
-		tip_result: TipResult,
+		good: i32,
 	) -> TipStageResponse {
+		let mut results: HashMap<u8, i32> = HashMap::new();
+		results.insert(1, TipInfo::difference(good, tip_info.player_1_tip.unwrap()));
+		results.insert(2, TipInfo::difference(good, tip_info.player_2_tip.unwrap()));
+		results.insert(3, TipInfo::difference(good, tip_info.player_3_tip.unwrap()));
+
+		let mut sorted_results: Vec<_> = results.iter().collect();
+		sorted_results.sort_by(|a, b| a.1.cmp(b.1));
+
 		TipStageResponse {
 			state,
 			cmd: None,
 			question: None,
 			tip_info: Some(tip_info),
-			tip_result: Some(tip_result),
+			tip_result: Some(TipResult {
+				winner: *sorted_results[0].0,
+				second: *sorted_results[1].0,
+				good,
+			}),
 		}
 	}
 }
@@ -230,10 +254,11 @@ impl TipStageResponse {
 // floats are cut to 3 decimal places
 // closeness is similar to percentage (100-1)
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TipInfo {
 	#[serde(rename = "@TIMEORDER")]
 	// the order of player answers (123)
+	#[serde(serialize_with = "timeorder_serializer")]
 	pub timeorder: Vec<u8>,
 	#[serde(rename = "@T1")]
 	pub player_1_time: Option<f32>,
@@ -253,6 +278,13 @@ pub struct TipInfo {
 	pub player_3_tip: Option<i32>,
 	#[serde(rename = "@A3")]
 	pub player_3_closeness: Option<String>,
+}
+
+fn timeorder_serializer<S>(x: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
+where
+	S: Serializer,
+{
+	s.serialize_str(&x.iter().map(|x| x.to_string()).collect::<String>())
 }
 
 impl TipInfo {
@@ -283,31 +315,34 @@ impl TipInfo {
 			2 => {
 				self.player_2_tip = Some(tip);
 				self.player_2_time = Some(time);
-				self.player_2_closeness = Some("20".to_string());
+				self.player_2_closeness = Some("90".to_string());
 			}
 			3 => {
 				self.player_3_tip = Some(tip);
 				self.player_3_time = Some(time);
-				self.player_3_closeness = Some("30".to_string());
+				self.player_3_closeness = Some("90".to_string());
 			}
 			_ => {
 				error!("Unable to set player tip, invalid player id: {}", rel_id);
 			}
 		}
 	}
+	pub(crate) fn difference(good: i32, answer: i32) -> i32 {
+		(good - answer).abs()
+	}
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct TipResult {
+#[derive(Serialize, Deserialize, Debug)]
+pub(crate) struct TipResult {
 	#[serde(rename = "@WINNER")]
-	pub winner: String,
+	pub winner: u8,
 	#[serde(rename = "@SECOND")]
-	pub second: String,
+	pub second: u8,
 	#[serde(rename = "@GOOD")]
-	pub good: String,
+	pub good: i32,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename = "TIP")]
 pub struct PlayerTipResponse {
 	#[serde(rename = "@TIP")]

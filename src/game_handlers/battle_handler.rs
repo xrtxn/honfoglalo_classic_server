@@ -5,9 +5,7 @@ use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
 
-use crate::game_handlers::question_handler::{
-	QuestionHandler, QuestionHandlerType, TipRequestHandler,
-};
+use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType, TipHandler};
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
@@ -114,9 +112,7 @@ impl BattleHandler {
 					.await
 					.unwrap();
 				if active_player.is_player() {
-					let available = AvailableAreas::get_available(temp_pool, self.game_id)
-						.await
-						.unwrap();
+					let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
 					Cmd::set_player_cmd(
 						temp_pool,
 						active_player.id,
@@ -137,7 +133,6 @@ impl BattleHandler {
 				if !active_player.is_player() {
 					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
 						.await
-						.unwrap()
 						.unwrap();
 
 					let mut rng = StdRng::from_entropy();

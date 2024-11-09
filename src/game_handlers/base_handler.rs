@@ -87,9 +87,7 @@ impl BaseHandler {
 					.await
 					.unwrap();
 				if active_player.is_player() {
-					let available = AvailableAreas::get_available(temp_pool, self.game_id)
-						.await
-						.unwrap();
+					let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
 					Cmd::set_player_cmd(
 						temp_pool,
 						active_player.id,
@@ -109,7 +107,6 @@ impl BaseHandler {
 				if !active_player.is_player() {
 					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
 						.await
-						.unwrap()
 						.unwrap();
 
 					let mut rng = StdRng::from_entropy();

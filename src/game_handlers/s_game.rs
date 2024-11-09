@@ -6,9 +6,11 @@ use crate::game_handlers::base_handler::BaseHandler;
 use crate::game_handlers::battle_handler::BattleHandler;
 use crate::game_handlers::fill_remaining_handler::FillRemainingHandler;
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready, PlayerType};
+use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
+use crate::triviador::triviador_state::TriviadorState;
 use crate::triviador::war_order::WarOrder;
 
 pub(crate) struct SGame {
@@ -78,7 +80,7 @@ impl SGame {
 				self.area_handler.command(temp_pool, None).await;
 				let mut mini_phase_num = 0;
 				// todo this is 6
-				for _ in 0..2 {
+				for _ in 0..6 {
 					// announcement for all players
 					self.area_handler.new_round_pick();
 					self.area_handler.command(temp_pool, None).await;
@@ -99,7 +101,7 @@ impl SGame {
 						.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
 						.unwrap()
 					{
-						let player = self.get_player_by_rel_id(rel_player);
+						let player = get_player_by_rel_id(self.players.clone(), rel_player);
 						self.area_handler.new_player_pick();
 						self.area_handler
 							.command(temp_pool, Some(player.clone()))
@@ -120,8 +122,39 @@ impl SGame {
 					mini_phase_num += Self::PLAYER_COUNT;
 				}
 			}
+			SGameState::FillRemaining => {
+				self.fill_remaining_handler.setup(temp_pool).await;
+				// setup
+				while !AvailableAreas::get_available(temp_pool, self.game_id)
+					.await
+					.unwrap()
+					.areas
+					.is_empty()
+				{
+					FillRemainingHandler::incr_fill_round(temp_pool, self.game_id, 1)
+						.await
+						.unwrap();
+
+					// announcement for players
+					self.fill_remaining_handler.announcement(temp_pool).await;
+
+					// tip question
+					self.fill_remaining_handler.tip_question(temp_pool).await;
+
+					self.fill_remaining_handler
+						.ask_desired_area(temp_pool)
+						.await;
+
+					self.fill_remaining_handler
+						.desired_area_response(temp_pool)
+						.await;
+					GameState::incr_round(temp_pool, self.game_id, 1)
+						.await
+						.unwrap();
+					Selection::clear(temp_pool, self.game_id).await.unwrap()
+				}
+			}
 			SGameState::Battle => {
-				// todo this is 6
 				WarOrder::set_redis(
 					&WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT),
 					temp_pool,
@@ -130,9 +163,10 @@ impl SGame {
 				.await
 				.unwrap();
 				// setup battle handler
-				self.area_handler.command(temp_pool, None).await;
+				self.battle_handler.command(temp_pool, None).await;
 				let mut mini_phase_num = 0;
-				for _ in 0..2 {
+				// todo this is 6
+				for _ in 0..6 {
 					GameState::set_round(temp_pool, self.game_id, 0)
 						.await
 						.unwrap();
@@ -148,8 +182,8 @@ impl SGame {
 					.await
 					.unwrap();
 					// announcement for all players
-					self.area_handler.new_round_pick();
-					self.area_handler.command(temp_pool, None).await;
+					self.battle_handler.new_round_pick();
+					self.battle_handler.command(temp_pool, None).await;
 
 					let war_order = WarOrder::get_redis(temp_pool, self.game_id).await.unwrap();
 
@@ -158,7 +192,7 @@ impl SGame {
 						.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
 						.unwrap()
 					{
-						let player = self.get_player_by_rel_id(rel_player);
+						let player = get_player_by_rel_id(self.players.clone(), rel_player);
 						self.battle_handler.new_player_pick();
 						self.battle_handler
 							.command(temp_pool, Some(player.clone()))
@@ -200,15 +234,6 @@ impl SGame {
 		.await?;
 		Ok(())
 	}
-
-	// it would be ideal to use a hashset instead of this
-	pub(crate) fn get_player_by_rel_id(&self, rel_id: u8) -> SGamePlayer {
-		self.players
-			.iter()
-			.find(|x| x.rel_id == rel_id)
-			.unwrap()
-			.clone()
-	}
 }
 
 #[derive(Clone)]
@@ -216,6 +241,7 @@ enum SGameState {
 	Setup,
 	BaseSelection,
 	AreaSelection,
+	FillRemaining,
 	Battle,
 	EndScreen,
 }
@@ -229,7 +255,8 @@ impl SGameState {
 		match self {
 			SGameState::Setup => SGameState::BaseSelection,
 			SGameState::BaseSelection => SGameState::AreaSelection,
-			SGameState::AreaSelection => SGameState::Battle,
+			SGameState::AreaSelection => SGameState::FillRemaining,
+			SGameState::FillRemaining => SGameState::Battle,
 			SGameState::Battle => SGameState::EndScreen,
 			SGameState::EndScreen => {
 				error!("Overshot the game state");
@@ -259,4 +286,9 @@ impl SGamePlayer {
 	pub(crate) fn is_player(&self) -> bool {
 		self.player_type == PlayerType::Player
 	}
+}
+
+// it would be ideal to use a hashset instead of this
+pub(crate) fn get_player_by_rel_id(players: Vec<SGamePlayer>, rel_id: u8) -> SGamePlayer {
+	players.iter().find(|x| x.rel_id == rel_id).unwrap().clone()
 }

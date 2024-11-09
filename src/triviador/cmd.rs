@@ -78,7 +78,7 @@ impl Cmd {
 			return Ok(None);
 		}
 
-		let available = AvailableAreas::get_available(temp_pool, game_id).await?;
+		let available = AvailableAreas::get_available(temp_pool, game_id).await;
 
 		Ok(Some(Cmd {
 			command: res.get("command").unwrap().to_string(),

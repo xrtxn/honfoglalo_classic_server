@@ -1,16 +1,17 @@
 use fred::clients::RedisPool;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+use tokio::task;
 use tracing::{info, warn};
 
 use crate::emulator::Emulator;
-use crate::game_handlers::s_game::SGamePlayer;
+use crate::game_handlers::s_game::{get_player_by_rel_id, SGamePlayer};
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::game_state::GameState;
 use crate::triviador::question::{
-	Question, QuestionAnswerResult, QuestionStageResponse, TipStageResponse,
+	Question, QuestionAnswerResult, QuestionStageResponse, TipInfo, TipStageResponse,
 };
 use crate::triviador::selection::Selection;
 use crate::triviador::triviador_state::TriviadorState;
@@ -242,7 +243,7 @@ impl QuestionHandler {
 	}
 }
 
-enum TipHandlerType {
+pub(crate) enum TipHandlerType {
 	Fill,
 	Battle,
 }
@@ -278,101 +279,137 @@ impl TipHandlerPhases {
 	}
 }
 
-pub(crate) struct TipRequestHandler {
+pub(crate) struct TipHandler {
 	tip_handler_type: TipHandlerType,
 	state: TipHandlerPhases,
 	players: Vec<SGamePlayer>,
 	game_id: u32,
-	answer_result: QuestionAnswerResult,
+	tip_info: TipInfo,
 }
 
-impl TipRequestHandler {
+impl TipHandler {
 	pub(crate) fn next(&mut self) {
 		self.state.next();
 	}
 
-	pub(crate) async fn command(&mut self, temp_pool: &RedisPool) {
-		match self.state {
-			TipHandlerPhases::SendTipRequest => {
-				match self.tip_handler_type {
-					TipHandlerType::Fill => {
-						GameState::set_phase(temp_pool, self.game_id, 1)
-							.await
-							.unwrap();
-					}
-					TipHandlerType::Battle => {
-						GameState::set_phase(temp_pool, self.game_id, 10)
-							.await
-							.unwrap();
-					}
-				}
-				let q = Question::emulate();
-				let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
+	pub(crate) async fn handle_all(&mut self, temp_pool: &RedisPool) -> SGamePlayer {
+		self.send_tip_request(temp_pool).await;
+		self.get_tip_response(temp_pool).await;
+		self.send_player_answers(temp_pool).await
+	}
+
+	async fn send_tip_request(&self, temp_pool: &RedisPool) {
+		match self.tip_handler_type {
+			TipHandlerType::Fill => {
+				GameState::set_phase(temp_pool, self.game_id, 1)
 					.await
 					.unwrap();
-				User::push_listen_queue(
-					temp_pool,
-					self.players[0].id,
-					quick_xml::se::to_string(&TipStageResponse::new_tip(state, q))
-						.unwrap()
-						.as_str(),
-				)
-				.await
-				.unwrap();
-				wait_for_game_ready(temp_pool, 1).await;
 			}
-			TipHandlerPhases::GetTipResponse => {
-				for player in self.players.iter().filter(|x| x.is_player()) {
+			TipHandlerType::Battle => {
+				GameState::set_phase(temp_pool, self.game_id, 10)
+					.await
+					.unwrap();
+			}
+		}
+		let q = Question::emulate();
+		let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
+			.await
+			.unwrap();
+		User::push_listen_queue(
+			temp_pool,
+			self.players[0].id,
+			quick_xml::se::to_string(&TipStageResponse::new_tip(state, q))
+				.unwrap()
+				.as_str(),
+		)
+		.await
+		.unwrap();
+		wait_for_game_ready(temp_pool, 1).await;
+	}
+
+	async fn get_tip_response(&mut self, temp_pool: &RedisPool) {
+		let start = tokio::time::Instant::now();
+		let mut tip_info = TipInfo::new();
+
+		let mut tasks = vec![];
+		for player in self.players.clone() {
+			let temp_pool = temp_pool.clone();
+			let task = task::spawn(async move {
+				return if player.is_player() {
 					// todo handle no response
 					User::subscribe_server_command(player.id).await;
-					match User::get_server_command(temp_pool, player.id)
+					match User::get_server_command(&temp_pool, player.id)
 						.await
 						.unwrap()
 					{
-						ServerCommand::QuestionAnswer(ans) => {
-							self.answer_result.set_player(player.rel_id, ans);
+						ServerCommand::TipAnswer(ans) => {
+							// tip_info.add_player_tip(
+							(player.rel_id, ans, start.elapsed().as_secs_f32())
+							// );
 						}
 						_ => {
 							warn!("Invalid command");
+							// todo placeholder
+							(player.rel_id, 1, start.elapsed().as_secs_f32())
 						}
 					}
-				}
-				for player in self.players.iter().filter(|x| !x.is_player()) {
+				} else {
 					let mut rng = StdRng::from_entropy();
-					let random_answer: u8 = rng.gen_range(1..4);
-					self.answer_result.set_player(player.rel_id, random_answer);
-				}
-			}
-			TipHandlerPhases::SendPlayerAnswers => {
-				todo!()
-			}
-			TipHandlerPhases::SendUpdatedState => {
-				todo!()
-			}
+					let random_answer: i32 = rng.gen_range(1..100);
+					// tip_info.add_player_tip(
+					(player.rel_id, random_answer, start.elapsed().as_secs_f32())
+					// );
+				};
+			});
+			tasks.push(task);
 		}
+		let res = futures::future::join_all(tasks).await;
+		for (rel_id, tip, time) in res.iter().map(|x| x.as_ref().unwrap()) {
+			tip_info.add_player_tip(*rel_id, *tip, *time);
+		}
+		self.tip_info = tip_info;
 	}
 
-	pub(crate) async fn handle_all(&mut self, temp_pool: &RedisPool) {
-		self.command(temp_pool).await;
-		self.next();
-		self.command(temp_pool).await;
-		self.next();
-		self.command(temp_pool).await;
-		self.next();
-		self.command(temp_pool).await;
+	async fn send_player_answers(&self, temp_pool: &RedisPool) -> SGamePlayer {
+		// todo placeholder
+		let good = 1;
+		println!("{:?}", self.tip_info);
+		// both need to be increased by 2
+		GameState::incr_phase(temp_pool, self.game_id, 2)
+			.await
+			.unwrap();
+		let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
+			.await
+			.unwrap();
+		let tip_stage_response =
+			TipStageResponse::new_tip_result(state.clone(), self.tip_info.clone(), good);
+		for player in self.players.iter().filter(|x| x.is_player()) {
+			User::push_listen_queue(
+				temp_pool,
+				player.id,
+				quick_xml::se::to_string(&tip_stage_response)
+					.unwrap()
+					.as_str(),
+			)
+			.await
+			.unwrap();
+		}
+		wait_for_game_ready(temp_pool, 1).await;
+		let winner = tip_stage_response.tip_result.unwrap();
+		get_player_by_rel_id(self.players.clone(), winner.winner)
 	}
 
 	pub(crate) async fn new(
 		stage_type: TipHandlerType,
 		players: Vec<SGamePlayer>,
 		game_id: u32,
-	) -> TipRequestHandler {
-		TipRequestHandler {
+	) -> TipHandler {
+		TipHandler {
 			tip_handler_type: stage_type,
 			state: TipHandlerPhases::SendTipRequest,
 			players,
 			game_id,
-			answer_result: QuestionAnswerResult::new(),
+			tip_info: TipInfo::new(),
 		}
 	}
 }

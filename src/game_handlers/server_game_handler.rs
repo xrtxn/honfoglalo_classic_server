@@ -35,6 +35,7 @@ impl ServerGameHandler {
 
 		// initial setup
 		let mut server_game = SGame::new(server_game_players, game_id);
+		// todo this is a temporary solution
 		loop {
 			server_game.command(temp_pool).await;
 			server_game.next();

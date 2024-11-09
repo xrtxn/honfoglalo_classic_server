@@ -54,27 +54,22 @@ impl AvailableAreas {
 	pub(crate) async fn get_available(
 		temp_pool: &RedisPool,
 		game_id: u32,
-	) -> Result<Option<AvailableAreas>, anyhow::Error> {
+	) -> Option<AvailableAreas> {
 		let test_areas: Vec<String> = temp_pool
 			.lrange(
 				format!("games:{}:triviador_state:available_areas", game_id),
 				0,
 				-1,
 			)
-			.await?;
-		let available: HashSet<County> = if test_areas.contains(&"".to_string())
-			&& test_areas.len() == 1
-			&& !test_areas.is_empty()
-		{
-			HashSet::new()
-		} else {
-			test_areas
-				.iter()
-				.map(|area| County::from_str(area).unwrap())
-				.collect()
-		};
-		let available = AvailableAreas { areas: available };
-		Ok(Some(available))
+			.await
+			.unwrap_or_default();
+
+		let available: HashSet<County> = test_areas
+			.into_iter()
+			.filter_map(|area| County::from_str(&area).ok())
+			.collect();
+
+		Some(AvailableAreas { areas: available })
 	}
 
 	/// this does not fail if the removable county is not there

@@ -42,6 +42,8 @@ pub(crate) struct TriviadorState {
 	pub available_areas: Option<AvailableAreas>,
 	#[serde(rename = "@UH")]
 	pub used_helps: String,
+	#[serde(rename = "@FAO")]
+	pub fill_round: Option<i8>,
 	// possibly unused
 	#[serde(rename = "@RT")]
 	pub room_type: Option<String>,
@@ -72,6 +74,7 @@ impl TriviadorState {
 					// ("base_info", state.base_info),
 					("area_num", Area::serialize_full(&state.areas_info).unwrap()),
 					// set available areas
+					("fill_round", state.fill_round.unwrap_or(-1).to_string()),
 					("used_helps", state.used_helps),
 					// set room type if not none,
 					// set shield mission
@@ -130,7 +133,13 @@ impl TriviadorState {
 		let round_info = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
 		let selection = Selection::get_redis(temp_pool, game_id).await?;
 		let base_info = Bases::get_redis(temp_pool, game_id).await?;
-		let available_areas = AvailableAreas::get_available(temp_pool, game_id).await?;
+		let available_areas = AvailableAreas::get_available(temp_pool, game_id).await;
+		// if the value is 0 set it to none
+		let fill_round = res
+			.get("fill_round")
+			.and_then(|x| x.parse::<i8>().ok())
+			.filter(|&x| x != -1);
+
 		let shield_mission = ShieldMission::get_shield_mission(temp_pool, game_id).await?;
 		let areas_info = Area::get_redis(temp_pool, game_id).await?;
 		Ok(TriviadorState {
@@ -145,6 +154,7 @@ impl TriviadorState {
 			areas_info,
 			available_areas,
 			used_helps: res.get("used_helps").unwrap().to_string(),
+			fill_round,
 			room_type: res.get("room_type").cloned(),
 			shield_mission,
 			war_order: res.get("war_order").cloned(),

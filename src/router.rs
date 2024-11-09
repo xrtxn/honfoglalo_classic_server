@@ -192,6 +192,15 @@ pub async fn game(
 						comm.mn,
 					))?)
 				}
+				CommandType::PlayerTipResponse(tip) => {
+					User::set_server_command(&tmp_db, PLAYER_ID, ServerCommand::TipAnswer(tip.tip))
+						.await?;
+
+					Ok(modified_xml_response(&CommandResponse::ok(
+						comm.client_id,
+						comm.mn,
+					))?)
+				}
 			}
 		}
 		ChannelType::Listen(lis) => {
