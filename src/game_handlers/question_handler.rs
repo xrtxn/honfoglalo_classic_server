@@ -112,7 +112,9 @@ impl QuestionHandler {
 							.unwrap();
 					}
 					QuestionHandlerType::Battle => {
-						todo!()
+						GameState::set_phase(temp_pool, self.game_id, 4)
+							.await
+							.unwrap();
 					}
 				}
 				let q = Question::emulate();
@@ -154,16 +156,9 @@ impl QuestionHandler {
 			}
 			QuestionHandlerPhases::SendCorrectAnswer => {
 				info!("todo but not necessary");
-				match self.question_handler_type {
-					QuestionHandlerType::AreaConquer => {
-						GameState::incr_phase(temp_pool, self.game_id, 1)
-							.await
-							.unwrap();
-					}
-					QuestionHandlerType::Battle => {
-						todo!()
-					}
-				}
+				GameState::incr_phase(temp_pool, self.game_id, 1)
+					.await
+					.unwrap();
 			}
 			QuestionHandlerPhases::SendPlayerAnswers => {
 				self.answer_result.good = Some(1);
@@ -174,7 +169,9 @@ impl QuestionHandler {
 							.unwrap();
 					}
 					QuestionHandlerType::Battle => {
-						todo!()
+						GameState::incr_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
 					}
 				}
 				let state = TriviadorState::get_triviador_state(temp_pool, self.game_id)
@@ -204,7 +201,9 @@ impl QuestionHandler {
 							.unwrap();
 					}
 					QuestionHandlerType::Battle => {
-						todo!()
+						GameState::set_phase(temp_pool, self.game_id, 21)
+							.await
+							.unwrap();
 					}
 				}
 				let selection = Selection::get_redis(temp_pool, self.game_id).await.unwrap();

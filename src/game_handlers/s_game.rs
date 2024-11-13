@@ -123,8 +123,9 @@ impl SGame {
 				}
 			}
 			SGameState::FillRemaining => {
-				self.fill_remaining_handler.setup(temp_pool).await;
 				// setup
+				self.fill_remaining_handler.setup(temp_pool).await;
+				// while there are free areas fill them
 				while !AvailableAreas::get_available(temp_pool, self.game_id)
 					.await
 					.unwrap()

@@ -12,6 +12,7 @@ use crate::users::User;
 pub(crate) mod area_conquer_handler;
 pub(crate) mod base_handler;
 pub(crate) mod battle_handler;
+mod endscreen_handler;
 mod fill_remaining_handler;
 pub(crate) mod question_handler;
 pub(crate) mod s_game;
