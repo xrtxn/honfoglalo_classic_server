@@ -9,14 +9,14 @@ use crate::triviador::cmd::Cmd;
 use crate::triviador::game::TriviadorGame;
 use crate::users::User;
 
-pub(crate) mod area_conquer_handler;
-pub(crate) mod base_handler;
-pub(crate) mod battle_handler;
-mod endscreen_handler;
-mod fill_remaining_handler;
-pub(crate) mod question_handler;
-pub(crate) mod s_game;
-pub(crate) mod server_game_handler;
+pub(super) mod area_conquer_handler;
+pub(super) mod base_handler;
+pub(super) mod battle_handler;
+pub(super) mod endscreen_handler;
+pub(super) mod fill_remaining_handler;
+pub(super) mod question_handler;
+pub(super) mod s_game;
+pub(super) mod server_game_handler;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) enum PlayerType {
@@ -45,21 +45,20 @@ pub async fn wait_for_game_ready(temp_pool: &RedisPool, player_id: i32) {
 	}
 }
 
-pub(crate) async fn send_player_commongame(temp_pool: &RedisPool, game_id: u32, player_id: i32) {
+pub(crate) async fn send_player_commongame(
+	temp_pool: &RedisPool,
+	game_id: u32,
+	player_id: i32,
+	rel_player_id: u8,
+) {
 	let mut resp = TriviadorGame::get_triviador(temp_pool, game_id)
 		.await
 		.unwrap();
-	resp.cmd = Cmd::get_player_cmd(temp_pool, player_id, game_id)
+	// todo remove rel_player_id
+	resp.cmd = Cmd::get_player_cmd(temp_pool, player_id, rel_player_id, game_id)
 		.await
 		.unwrap();
 	let xml = quick_xml::se::to_string(&resp.clone()).unwrap();
-	User::push_listen_queue(temp_pool, player_id, xml.as_str())
-		.await
-		.unwrap();
-}
-
-async fn send_player_string(temp_pool: &RedisPool, player_id: i32, response: String) {
-	let xml = quick_xml::se::to_string(&response).unwrap();
 	User::push_listen_queue(temp_pool, player_id, xml.as_str())
 		.await
 		.unwrap();

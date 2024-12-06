@@ -6,7 +6,7 @@ use axum::{Extension, Json};
 use fred::clients::RedisPool;
 use fred::prelude::*;
 use sqlx::PgPool;
-use tracing::{error, trace, warn};
+use tracing::warn;
 
 use crate::app::AppError;
 use crate::cdn::countries::CountriesResponse;
@@ -15,7 +15,7 @@ use crate::channels::command::response::CommandResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
-use crate::channels::{ChannelErrorResponse, ChannelType};
+use crate::channels::ChannelType;
 use crate::emulator::Emulator;
 use crate::game_handlers::server_game_handler::ServerGameHandler;
 use crate::game_handlers::wait_for_game_ready;

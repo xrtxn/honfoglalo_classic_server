@@ -21,7 +21,7 @@ pub enum AreaValue {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Area {
-	owner: u8,
+	pub(crate) owner: u8,
 	is_fortress: bool,
 	value: AreaValue,
 }

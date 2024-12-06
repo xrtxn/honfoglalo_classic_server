@@ -1,11 +1,9 @@
-use std::ops::Range;
 
 use fred::prelude::RedisPool;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use tracing::error;
 
-use crate::game_handlers::s_game::SGamePlayer;
 use crate::triviador::triviador_state::TriviadorState;
 
 pub struct WarOrder {

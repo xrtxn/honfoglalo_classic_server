@@ -1,11 +1,11 @@
 use std::time::Duration;
 
-use fred::prelude::RedisPool;
+use fred::prelude::{KeysInterface, RedisPool};
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
 
-use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType, TipHandler};
+use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType};
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
@@ -68,7 +68,7 @@ pub(crate) struct BattleHandler {
 impl BattleHandler {
 	pub(crate) fn new(players: Vec<SGamePlayer>, game_id: u32) -> BattleHandler {
 		BattleHandler {
-			state: BattleHandlerPhases::Announcement,
+			state: BattleHandlerPhases::Setup,
 			players,
 			game_id,
 		}
@@ -100,7 +100,7 @@ impl BattleHandler {
 					.await
 					.unwrap();
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Battle announcement waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -108,6 +108,16 @@ impl BattleHandler {
 			}
 			BattleHandlerPhases::AskAttackingArea => {
 				let active_player = active_player.unwrap();
+				temp_pool
+					.set::<String, _, _>(
+						format!("games:{}:send_player", self.game_id),
+						active_player.rel_id,
+						None,
+						None,
+						false,
+					)
+					.await
+					.unwrap();
 				Self::ask_area_battle_backend(temp_pool, self.game_id, active_player.rel_id)
 					.await
 					.unwrap();
@@ -122,7 +132,7 @@ impl BattleHandler {
 					.unwrap();
 				}
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Send select cmd waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -174,7 +184,7 @@ impl BattleHandler {
 					.unwrap();
 
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Common game ready waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -206,6 +216,7 @@ impl BattleHandler {
 			},
 		)
 		.await?;
+		AvailableAreas::set_available(temp_pool, game_id, AvailableAreas::all_counties()).await?;
 		Ok(())
 	}
 

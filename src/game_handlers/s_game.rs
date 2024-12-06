@@ -1,4 +1,6 @@
 use fred::clients::RedisPool;
+use rand::prelude::{IteratorRandom, StdRng};
+use rand::{Rng, SeedableRng};
 use tracing::{error, trace};
 
 use crate::game_handlers::area_conquer_handler::AreaConquerHandler;
@@ -6,11 +8,12 @@ use crate::game_handlers::base_handler::BaseHandler;
 use crate::game_handlers::battle_handler::BattleHandler;
 use crate::game_handlers::fill_remaining_handler::FillRemainingHandler;
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready, PlayerType};
+use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
+use crate::triviador::county::County;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
-use crate::triviador::triviador_state::TriviadorState;
 use crate::triviador::war_order::WarOrder;
 
 pub(crate) struct SGame {
@@ -21,6 +24,13 @@ pub(crate) struct SGame {
 	battle_handler: BattleHandler,
 	players: Vec<SGamePlayer>,
 	game_id: u32,
+}
+
+mod emulation_config {
+	pub(crate) const BASE_SELECTION: bool = true;
+	pub(crate) const AREA_SELECTION: bool = false;
+	pub(crate) const FILL_REMAINING: bool = false;
+	pub(crate) const BATTLE: bool = false;
 }
 
 impl SGame {
@@ -48,81 +58,91 @@ impl SGame {
 				Self::setup_backend(temp_pool, self.game_id).await.unwrap();
 				// this must be sent from here as the initial listen state is false
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Setup waiting");
 				wait_for_game_ready(temp_pool, 1).await;
 				trace!("Setup game ready");
 			}
 			SGameState::BaseSelection => {
-				// announcement for players
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					self.base_handler.command(temp_pool, player.clone()).await;
+				if emulation_config::BASE_SELECTION {
+					SGameStateEmulator::base_selection(temp_pool, self.game_id).await;
+				} else {
+					// announcement for players
+					for player in self.players.iter().filter(|x| x.is_player()) {
+						self.base_handler.command(temp_pool, player.clone()).await;
+					}
+					// pick a base for everyone
+					for player in &self.players {
+						self.base_handler.new_pick();
+						self.base_handler.command(temp_pool, player.clone()).await;
+						self.base_handler.next();
+						self.base_handler.command(temp_pool, player.clone()).await;
+					}
+					Selection::clear(temp_pool, self.game_id).await.unwrap()
 				}
-				// pick a base for everyone
-				for player in &self.players {
-					self.base_handler.new_pick();
-					self.base_handler.command(temp_pool, player.clone()).await;
-					self.base_handler.next();
-					self.base_handler.command(temp_pool, player.clone()).await;
-				}
-				Selection::clear(temp_pool, self.game_id).await.unwrap()
 			}
 			SGameState::AreaSelection => {
-				WarOrder::set_redis(
-					&WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT),
-					temp_pool,
-					self.game_id,
-				)
-				.await
-				.unwrap();
-				// setup area handler
-				self.area_handler.command(temp_pool, None).await;
-				let mut mini_phase_num = 0;
-				// todo this is 6
-				for _ in 0..6 {
-					// announcement for all players
-					self.area_handler.new_round_pick();
-					self.area_handler.command(temp_pool, None).await;
-					let war_order = WarOrder::get_redis(temp_pool, self.game_id).await.unwrap();
-					RoundInfo::set_roundinfo(
+				if emulation_config::AREA_SELECTION {
+					SGameStateEmulator::area_selection(temp_pool, self.game_id).await;
+				} else {
+					WarOrder::set_redis(
+						&WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT),
 						temp_pool,
 						self.game_id,
-						RoundInfo {
-							mini_phase_num: 0,
-							rel_player_id: 0,
-							attacked_player: None,
-						},
 					)
 					.await
 					.unwrap();
-					// select an area for everyone
-					for rel_player in war_order
-						.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
-						.unwrap()
-					{
-						let player = get_player_by_rel_id(self.players.clone(), rel_player);
-						self.area_handler.new_player_pick();
-						self.area_handler
-							.command(temp_pool, Some(player.clone()))
-							.await;
+					// setup area handler
+					self.area_handler.command(temp_pool, None).await;
+					let mut mini_phase_num = 0;
+					for _ in 0..5 {
+						// announcement for all players
+						self.area_handler.new_round_pick();
+						self.area_handler.command(temp_pool, None).await;
+						let war_order = WarOrder::get_redis(temp_pool, self.game_id).await.unwrap();
+						RoundInfo::set_roundinfo(
+							temp_pool,
+							self.game_id,
+							RoundInfo {
+								mini_phase_num: 0,
+								rel_player_id: 0,
+								attacked_player: None,
+							},
+						)
+						.await
+						.unwrap();
+						// select an area for everyone
+						for rel_player in war_order
+							.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
+							.unwrap()
+						{
+							let player = get_player_by_rel_id(self.players.clone(), rel_player);
+							self.area_handler.new_player_pick();
+							self.area_handler
+								.command(temp_pool, Some(player.clone()))
+								.await;
+							self.area_handler.next();
+							self.area_handler.command(temp_pool, Some(player)).await;
+						}
 						self.area_handler.next();
-						self.area_handler.command(temp_pool, Some(player)).await;
+						self.area_handler
+							.command(temp_pool, Some(self.players[0].clone()))
+							.await;
+						GameState::incr_round(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
+						RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
+						mini_phase_num += Self::PLAYER_COUNT;
 					}
-					self.area_handler.next();
-					self.area_handler
-						.command(temp_pool, Some(self.players[0].clone()))
-						.await;
-					GameState::incr_round(temp_pool, self.game_id, 1)
-						.await
-						.unwrap();
-					RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
-						.await
-						.unwrap();
-					mini_phase_num += Self::PLAYER_COUNT;
 				}
 			}
 			SGameState::FillRemaining => {
+				if emulation_config::FILL_REMAINING {
+					SGameStateEmulator::fill_remaining(temp_pool, self.game_id).await;
+				}
 				// setup
 				self.fill_remaining_handler.setup(temp_pool).await;
 				// while there are free areas fill them
@@ -166,7 +186,6 @@ impl SGame {
 				// setup battle handler
 				self.battle_handler.command(temp_pool, None).await;
 				let mut mini_phase_num = 0;
-				// todo this is 6
 				for _ in 0..6 {
 					GameState::set_round(temp_pool, self.game_id, 0)
 						.await
@@ -188,7 +207,7 @@ impl SGame {
 
 					let war_order = WarOrder::get_redis(temp_pool, self.game_id).await.unwrap();
 
-					// select an area for everyone
+					// let everyone attack
 					for rel_player in war_order
 						.get_next_players(mini_phase_num, Self::PLAYER_COUNT)
 						.unwrap()
@@ -206,10 +225,11 @@ impl SGame {
 						self.battle_handler
 							.command(temp_pool, Some(self.players[0].clone()))
 							.await;
+						RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
+							.await
+							.unwrap();
 					}
-					RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
-						.await
-						.unwrap();
+
 					GameState::incr_round(temp_pool, self.game_id, 1)
 						.await
 						.unwrap();
@@ -263,6 +283,68 @@ impl SGameState {
 				error!("Overshot the game state");
 				SGameState::Setup
 			}
+		}
+	}
+}
+
+struct SGameStateEmulator {}
+
+impl SGameStateEmulator {
+	pub(super) async fn base_selection(temp_pool: &RedisPool, game_id: u32) {
+		AvailableAreas::set_available(temp_pool, game_id, AvailableAreas::all_counties())
+			.await
+			.unwrap();
+
+		BaseHandler::new_base_selected(temp_pool, game_id, 16, 1)
+			.await
+			.unwrap();
+		BaseHandler::new_base_selected(temp_pool, game_id, 15, 2)
+			.await
+			.unwrap();
+		BaseHandler::new_base_selected(temp_pool, game_id, 17, 3)
+			.await
+			.unwrap();
+	}
+
+	pub(super) async fn area_selection(temp_pool: &RedisPool, game_id: u32) {
+		for _ in 0..5 {
+			for rel_player_id in 1..4 {
+				let avail = AvailableAreas::get_available(temp_pool, game_id)
+					.await
+					.unwrap()
+					.areas;
+
+				let mut rng = StdRng::from_entropy();
+				let area = avail.iter().choose(&mut rng).unwrap().clone();
+				Area::area_occupied(temp_pool, game_id, rel_player_id, Option::from(area))
+					.await
+					.unwrap();
+				AvailableAreas::pop_county(temp_pool, game_id, County::try_from(area).unwrap())
+					.await
+					.unwrap();
+			}
+		}
+	}
+
+	pub(super) async fn fill_remaining(temp_pool: &RedisPool, game_id: u32) {
+		loop {
+			let avail = AvailableAreas::get_available(temp_pool, game_id)
+				.await
+				.unwrap()
+				.areas;
+
+			if avail.is_empty() {
+				break;
+			}
+
+			let mut rng = StdRng::from_entropy();
+			let area = avail.iter().choose(&mut rng).unwrap().clone();
+			Area::area_occupied(temp_pool, game_id, rng.gen_range(1..3), Option::from(area))
+				.await
+				.unwrap();
+			AvailableAreas::pop_county(temp_pool, game_id, County::try_from(area).unwrap())
+				.await
+				.unwrap();
 		}
 	}
 }

@@ -69,7 +69,7 @@ impl BaseHandler {
 					.await
 					.unwrap();
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Base select announcement waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -97,7 +97,7 @@ impl BaseHandler {
 					.unwrap();
 				}
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Send select cmd waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -147,7 +147,7 @@ impl BaseHandler {
 					.unwrap();
 
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Common game ready waiting");
 				wait_for_game_ready(temp_pool, 1).await;

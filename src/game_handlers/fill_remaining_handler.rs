@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use fred::clients::RedisPool;
+use fred::prelude::KeysInterface;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
@@ -14,11 +15,9 @@ use crate::triviador::cmd::Cmd;
 use crate::triviador::county::County;
 use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
-use crate::triviador::question::TipStageResponse;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
 use crate::triviador::triviador_state::TriviadorState;
-use crate::triviador::war_order::WarOrder;
 use crate::users::{ServerCommand, User};
 
 #[derive(PartialEq, Clone)]
@@ -96,7 +95,7 @@ impl FillRemainingHandler {
 			.await
 			.unwrap();
 		for player in self.players.iter().filter(|x| x.is_player()) {
-			send_player_commongame(temp_pool, self.game_id, player.id).await;
+			send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 		}
 		trace!("Fill remaining announcement waiting");
 		wait_for_game_ready(temp_pool, 1).await;
@@ -111,6 +110,16 @@ impl FillRemainingHandler {
 
 	pub(crate) async fn ask_desired_area(&mut self, temp_pool: &RedisPool) {
 		let active_player = self.winner.clone().unwrap();
+		temp_pool
+			.set::<String, _, _>(
+				format!("games:{}:send_player", self.game_id),
+				active_player.rel_id,
+				None,
+				None,
+				false,
+			)
+			.await
+			.unwrap();
 		Self::fill_area_select_backend(temp_pool, self.game_id, active_player.rel_id)
 			.await
 			.unwrap();
@@ -125,7 +134,7 @@ impl FillRemainingHandler {
 			.unwrap();
 		}
 		for player in self.players.iter().filter(|x| x.is_player()) {
-			send_player_commongame(temp_pool, self.game_id, player.id).await;
+			send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 		}
 		trace!("Send select cmd waiting");
 		wait_for_game_ready(temp_pool, 1).await;
@@ -171,7 +180,7 @@ impl FillRemainingHandler {
 			.unwrap();
 		}
 		for player in self.players.iter().filter(|x| x.is_player()) {
-			send_player_commongame(temp_pool, self.game_id, player.id).await;
+			send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 		}
 		RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
 			.await

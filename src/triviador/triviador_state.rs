@@ -4,6 +4,7 @@ use fred::clients::RedisPool;
 use fred::prelude::*;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
+use tracing::error;
 
 use crate::triviador::areas::areas_full_serializer;
 use crate::triviador::areas::Area;
@@ -128,12 +129,28 @@ impl TriviadorState {
 		let res: HashMap<String, String> = temp_pool
 			.hgetall(format!("games:{}:triviador_state", game_id))
 			.await?;
+		// todo very bad please fix
+		let active_player: u8 = temp_pool
+			.get(format!("games:{}:send_player", game_id.to_string()))
+			.await
+			.unwrap_or_else(|e| {
+				error!("Error getting active player: {}", e);
+				1
+			});
 
 		let game_state = GameState::get_gamestate(temp_pool, game_id).await?;
 		let round_info = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
 		let selection = Selection::get_redis(temp_pool, game_id).await?;
 		let base_info = Bases::get_redis(temp_pool, game_id).await?;
-		let available_areas = AvailableAreas::get_available(temp_pool, game_id).await;
+
+		// todo I dislike this
+		let available_areas;
+		if game_state.state == 1 {
+			available_areas = AvailableAreas::get_available(temp_pool, game_id).await;
+		} else {
+			available_areas =
+				AvailableAreas::get_limited_available(temp_pool, game_id, active_player).await;
+		}
 		// if the value is 0 set it to none
 		let fill_round = res
 			.get("fill_round")

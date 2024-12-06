@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use fred::clients::RedisPool;
+use fred::prelude::KeysInterface;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
@@ -15,11 +16,9 @@ use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
-use crate::triviador::triviador_state::TriviadorState;
-use crate::triviador::war_order::WarOrder;
 use crate::users::{ServerCommand, User};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Debug)]
 enum AreaConquerHandlerPhases {
 	// invisible
 	Setup,
@@ -108,7 +107,7 @@ impl AreaConquerHandler {
 					.await
 					.unwrap();
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Area select announcement waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -116,11 +115,26 @@ impl AreaConquerHandler {
 			}
 			AreaConquerHandlerPhases::AskDesiredArea => {
 				let active_player = active_player.unwrap();
+				temp_pool
+					.set::<String, _, _>(
+						format!("games:{}:send_player", self.game_id),
+						active_player.rel_id,
+						None,
+						None,
+						false,
+					)
+					.await
+					.unwrap();
 				Self::player_area_select_backend(temp_pool, self.game_id, active_player.rel_id)
 					.await
 					.unwrap();
 				if active_player.is_player() {
-					let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
+					let available = AvailableAreas::get_limited_available(
+						temp_pool,
+						self.game_id,
+						active_player.rel_id,
+					)
+					.await;
 					Cmd::set_player_cmd(
 						temp_pool,
 						active_player.id,
@@ -130,7 +144,7 @@ impl AreaConquerHandler {
 					.unwrap();
 				}
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Send select cmd waiting");
 				wait_for_game_ready(temp_pool, 1).await;
@@ -138,22 +152,7 @@ impl AreaConquerHandler {
 			}
 			AreaConquerHandlerPhases::DesiredAreaResponse => {
 				let active_player = active_player.unwrap();
-				if !active_player.is_player() {
-					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
-						.await
-						.unwrap();
-
-					let mut rng = StdRng::from_entropy();
-					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-					AreaConquerHandler::new_area_selected(
-						temp_pool,
-						self.game_id,
-						random_area as u8,
-						active_player.rel_id,
-					)
-					.await
-					.unwrap();
-				} else {
+				if active_player.is_player() {
 					player_timeout_timer(temp_pool, active_player.id, Duration::from_secs(60))
 						.await;
 					Cmd::clear_cmd(temp_pool, active_player.id).await.unwrap();
@@ -176,13 +175,32 @@ impl AreaConquerHandler {
 							warn!("Invalid command");
 						}
 					}
+				} else {
+					let available_areas = AvailableAreas::get_limited_available(
+						temp_pool,
+						self.game_id,
+						active_player.rel_id,
+					)
+					.await
+					.unwrap();
+
+					let mut rng = StdRng::from_entropy();
+					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
+					AreaConquerHandler::new_area_selected(
+						temp_pool,
+						self.game_id,
+						random_area as u8,
+						active_player.rel_id,
+					)
+					.await
+					.unwrap();
 				}
 				AreaConquerHandler::area_selected_stage(temp_pool, self.game_id)
 					.await
 					.unwrap();
 
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				trace!("Common game ready waiting");
 				wait_for_game_ready(temp_pool, 1).await;

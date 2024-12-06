@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
-use tracing::{error, trace};
+use tracing::error;
 
 use crate::emulator::Emulator;
 use crate::triviador::cmd::Cmd;

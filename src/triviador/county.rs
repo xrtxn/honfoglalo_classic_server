@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -7,7 +8,6 @@ use serde::{Serialize, Serializer};
 use crate::triviador::available_area::AvailableAreas;
 use crate::utils::to_hex_with_length;
 
-#[allow(dead_code)]
 #[derive(Serialize, Clone, Copy, Eq, PartialEq, Hash, Debug)]
 // todo make this country based
 pub enum County {
@@ -31,6 +31,140 @@ pub enum County {
 	Baranya = 17,              // Baranya
 	Zala = 18,                 // Zala
 	Vas = 19,                  // Vas
+}
+
+impl County {
+	pub fn county_neighbours(&self) -> HashSet<County> {
+		let mut hs = HashSet::with_capacity(2);
+		match self {
+			County::NoResponse => {
+				// todo check this out
+			}
+			County::Pest => {
+				hs.insert(County::Nograd);
+				hs.insert(County::Heves);
+				hs.insert(County::JaszNagykunSzolnok);
+				hs.insert(County::BacsKiskun);
+				hs.insert(County::Fejer);
+				hs.insert(County::KomaromEsztergom);
+			}
+			County::Nograd => {
+				hs.insert(County::Pest);
+				hs.insert(County::Heves);
+				hs.insert(County::Borsod);
+			}
+			County::Heves => {
+				hs.insert(County::Pest);
+				hs.insert(County::Nograd);
+				hs.insert(County::Borsod);
+				hs.insert(County::JaszNagykunSzolnok);
+			}
+			County::JaszNagykunSzolnok => {
+				hs.insert(County::Pest);
+				hs.insert(County::Heves);
+				hs.insert(County::Borsod);
+				hs.insert(County::HajduBihar);
+				hs.insert(County::Bekes);
+				hs.insert(County::Csongrad);
+				hs.insert(County::BacsKiskun);
+			}
+			County::BacsKiskun => {
+				hs.insert(County::Tolna);
+				hs.insert(County::Somogy);
+				hs.insert(County::Fejer);
+				hs.insert(County::Pest);
+				hs.insert(County::JaszNagykunSzolnok);
+				hs.insert(County::Csongrad);
+			}
+			County::Fejer => {
+				hs.insert(County::KomaromEsztergom);
+				hs.insert(County::Pest);
+				hs.insert(County::BacsKiskun);
+				hs.insert(County::Tolna);
+				hs.insert(County::Somogy);
+				hs.insert(County::Veszprem);
+			}
+			County::KomaromEsztergom => {
+				hs.insert(County::Pest);
+				hs.insert(County::Fejer);
+				hs.insert(County::Veszprem);
+				hs.insert(County::GyorMosonSopron);
+			}
+			County::Borsod => {
+				hs.insert(County::SzabolcsSzatmarBereg);
+				hs.insert(County::HajduBihar);
+				hs.insert(County::JaszNagykunSzolnok);
+				hs.insert(County::Heves);
+				hs.insert(County::Nograd);
+			}
+			County::HajduBihar => {
+				hs.insert(County::SzabolcsSzatmarBereg);
+				hs.insert(County::Bekes);
+				hs.insert(County::JaszNagykunSzolnok);
+				hs.insert(County::Borsod);
+			}
+			County::Bekes => {
+				hs.insert(County::HajduBihar);
+				hs.insert(County::Csongrad);
+				hs.insert(County::JaszNagykunSzolnok);
+			}
+			County::Csongrad => {
+				hs.insert(County::JaszNagykunSzolnok);
+				hs.insert(County::Bekes);
+				hs.insert(County::BacsKiskun);
+			}
+			County::Tolna => {
+				hs.insert(County::Fejer);
+				hs.insert(County::BacsKiskun);
+				hs.insert(County::Baranya);
+				hs.insert(County::Somogy);
+			}
+			County::Somogy => {
+				hs.insert(County::Veszprem);
+				hs.insert(County::Fejer);
+				hs.insert(County::Tolna);
+				hs.insert(County::Baranya);
+				hs.insert(County::Zala);
+			}
+			County::Veszprem => {
+				hs.insert(County::GyorMosonSopron);
+				hs.insert(County::KomaromEsztergom);
+				hs.insert(County::Fejer);
+				hs.insert(County::Somogy);
+				hs.insert(County::Zala);
+				hs.insert(County::Vas);
+			}
+			County::GyorMosonSopron => {
+				hs.insert(County::KomaromEsztergom);
+				hs.insert(County::Veszprem);
+				hs.insert(County::Vas);
+			}
+			County::SzabolcsSzatmarBereg => {
+				hs.insert(County::Borsod);
+				hs.insert(County::HajduBihar);
+			}
+			County::Baranya => {
+				hs.insert(County::Tolna);
+				hs.insert(County::BacsKiskun);
+				hs.insert(County::Somogy);
+			}
+			County::Zala => {
+				hs.insert(County::Vas);
+				hs.insert(County::Veszprem);
+				hs.insert(County::Somogy);
+			}
+			County::Vas => {
+				hs.insert(County::GyorMosonSopron);
+				hs.insert(County::Veszprem);
+				hs.insert(County::Zala);
+			}
+		}
+		hs
+	}
+
+	pub fn is_neighbour(&self, other: County) -> bool {
+		self.county_neighbours().contains(&other)
+	}
 }
 
 impl fmt::Display for County {

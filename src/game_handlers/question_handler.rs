@@ -150,7 +150,7 @@ impl QuestionHandler {
 				}
 				for player in self.players.iter().filter(|x| !x.is_player()) {
 					let mut rng = StdRng::from_entropy();
-					let random_answer: u8 = rng.gen_range(1..5);
+					let random_answer: u8 = rng.gen_range(1..=4);
 					self.answer_result.set_player(player.rel_id, random_answer);
 				}
 			}
@@ -234,7 +234,7 @@ impl QuestionHandler {
 					.await
 					.unwrap();
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id).await;
+					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
 				}
 				Selection::clear(temp_pool, self.game_id).await.unwrap();
 			}
