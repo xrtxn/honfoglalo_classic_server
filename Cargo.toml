@@ -2,6 +2,7 @@
 name = "honfoglalo_classic_server"
 version = "0.1.0"
 edition = "2021"
+resolver = "2"
 
 [dependencies]
 axum = { version = "0.7", features = ["macros", "query"] }
@@ -16,7 +17,7 @@ async-trait = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing = "0.1"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio"] }
-fred = { version = "9.4", features = ["full-tracing", "mocks"] }
+fred = { version = "9.4", features = ["full-tracing"] }
 dotenvy = "0.15"
 hex = "0.4.3"
 fastrand = "2.1.1"

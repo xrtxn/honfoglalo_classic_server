@@ -32,7 +32,6 @@ mod emulation_config {
 	pub(crate) const FILL_REMAINING: bool = false;
 	pub(crate) const BATTLE: bool = false;
 }
-
 impl SGame {
 	const PLAYER_COUNT: usize = 3;
 
