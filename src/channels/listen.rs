@@ -2,14 +2,14 @@ pub mod request {
 	use serde::{Deserialize, Serialize};
 	use serde_aux::prelude::deserialize_bool_from_anything;
 
-	#[derive(Serialize, Deserialize, Debug)]
+	#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 	pub struct ListenRequest {
 		#[serde(rename = "CID")]
-		pub client_id: String,
+		pub client_id: i32,
 		#[serde(rename = "MN")]
-		pub mn: String,
+		pub mn: u32,
 		#[serde(rename = "TRY")]
-		pub retry_num: String,
+		pub retry_num: Option<u16>,
 	}
 
 	#[derive(Serialize, Deserialize, Debug)]
@@ -53,9 +53,9 @@ pub mod response {
 	#[serde(rename = "L")]
 	pub(crate) struct ListenResponseHeader {
 		#[serde(rename = "@CID")]
-		pub client_id: String,
+		pub client_id: i32,
 		#[serde(rename = "@MN")]
-		pub mn: String,
+		pub mn: u32,
 		#[serde(rename = "@R")]
 		pub result: u8,
 	}

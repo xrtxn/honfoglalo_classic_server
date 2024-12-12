@@ -13,14 +13,14 @@ pub mod request {
 	use crate::village::start_game::request::EnterLobbyRequest;
 	use crate::village::waithall::ChangeWHXML;
 
-	#[derive(Serialize, Deserialize, Debug)]
+	#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
 	pub struct CommandRequest {
 		#[serde(rename = "CID")]
-		pub client_id: String,
+		pub client_id: i32,
 		#[serde(rename = "MN")]
-		pub mn: String,
+		pub mn: u32,
 		#[serde(rename = "TRY")]
-		pub retry_num: String,
+		pub retry_num: Option<u16>,
 	}
 
 	#[derive(Serialize, Deserialize, Debug)]

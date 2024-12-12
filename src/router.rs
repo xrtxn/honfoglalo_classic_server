@@ -6,16 +6,17 @@ use axum::{Extension, Json};
 use fred::clients::RedisPool;
 use fred::prelude::*;
 use sqlx::PgPool;
+use tokio::sync::broadcast;
 use tracing::warn;
 
-use crate::app::AppError;
+use crate::app::{AppError, PlayerState, SharedState};
 use crate::cdn::countries::CountriesResponse;
 use crate::channels::command::request::{CommandRoot, CommandType};
 use crate::channels::command::response::CommandResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
-use crate::channels::ChannelType;
+use crate::channels::{BodyChannelType, QueryChannelType};
 use crate::emulator::Emulator;
 use crate::game_handlers::server_game_handler::ServerGameHandler;
 use crate::game_handlers::wait_for_game_ready;
@@ -56,37 +57,25 @@ pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 	}
 }
 
+#[axum::debug_handler]
 pub async fn game(
+	tx: Extension<broadcast::Sender<String>>,
 	_db: Extension<PgPool>,
 	tmp_db: Extension<RedisPool>,
-	headers: Query<HashMap<String, String>>,
+	state: Extension<PlayerState>,
+	xml_header: Extension<BodyChannelType>,
 	body: String,
 ) -> Result<String, AppError> {
 	const GAME_ID: u32 = 1;
 	const PLAYER_ID: i32 = 1;
 	const PLAYER_NAME: &str = "xrtxn";
-	let lines: Vec<&str> = body.lines().collect();
 
-	let string = format!(
-		"<ROOT>{}</ROOT>",
-		match lines.get(1) {
-			None => {
-				return Err(AppError::from(anyhow!(
-					"Invalid body xml, possibly without header"
-				)));
-			}
-			Some(r) => {
-				r
-			}
-		}
-	);
-	let headers = {
-		let serialized_headers = serde_json::to_string(&headers.0)?;
-		serde_json::from_str::<ChannelType>(&serialized_headers)?
-	};
-	match headers {
-		ChannelType::Command(comm) => {
-			let ser: CommandRoot = quick_xml::de::from_str(&string)?;
+	let rx = tx.subscribe();
+
+	let body = format!("<ROOT>{}</ROOT>", body);
+	match xml_header.0 {
+		BodyChannelType::Command(comm) => {
+			let ser: CommandRoot = quick_xml::de::from_str(&body)?;
 			match ser.msg_type {
 				CommandType::Login(_) => {
 					// todo validate login
@@ -203,8 +192,8 @@ pub async fn game(
 				}
 			}
 		}
-		ChannelType::Listen(lis) => {
-			let ser: ListenRoot = quick_xml::de::from_str(&string)?;
+		BodyChannelType::Listen(lis) => {
+			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
 			User::set_listen_state(&tmp_db, PLAYER_ID, ser.listen.is_ready).await?;
 			if !User::get_is_logged_in(&tmp_db, PLAYER_ID).await? {
 				User::set_is_logged_in(&tmp_db, PLAYER_ID, true).await?;
@@ -246,7 +235,7 @@ pub async fn game(
 				Ok(format!(
 					"{}\n{}",
 					quick_xml::se::to_string(&ListenResponseHeader {
-						client_id: PLAYER_ID.to_string(),
+						client_id: PLAYER_ID,
 						mn: lis.mn,
 						result: 0,
 					})?,
@@ -267,7 +256,7 @@ pub async fn game(
 				Ok(format!(
 					"{}\n{}",
 					quick_xml::se::to_string(&ListenResponseHeader {
-						client_id: PLAYER_ID.to_string(),
+						client_id: PLAYER_ID,
 						mn: lis.mn,
 						result: 0,
 					})?,

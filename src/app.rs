@@ -1,11 +1,32 @@
+use std::ops::Deref;
+use std::sync::Arc;
+
+use axum::body::Body;
+use axum::extract::Request;
+use axum::handler::Handler;
 use axum::http::StatusCode;
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{Extension, Router};
+use axum::{middleware, Extension, Router};
 use fred::prelude::*;
+use http_body_util::BodyExt;
+use scc::HashMap;
 use sqlx::postgres::PgPool;
+use tokio::sync::broadcast;
 
+use crate::channels::{parse_xml_multiple, BodyChannelType};
 use crate::router::{client_castle, countries, friends, game, help, mobil};
+
+#[derive(Clone, Debug)]
+pub struct PlayerState {
+	is_logged_in: bool,
+	is_listen_ready: bool,
+	sender: broadcast::Sender<String>,
+}
+
+// Create a type alias for your shared state
+pub type SharedState = Arc<HashMap<i32, PlayerState>>;
 
 pub struct App {
 	db: PgPool,
@@ -34,22 +55,69 @@ impl App {
 	}
 
 	pub async fn serve(self) -> Result<(), AppError> {
+		// todo use a middleware instead
+		const USER_ID: i32 = 1;
+
+		let shared_state: SharedState = Arc::new(HashMap::new());
+
+		let (tx, rx) = broadcast::channel(8);
+		let val = PlayerState {
+			is_logged_in: false,
+			is_listen_ready: false,
+			sender: tx.clone(),
+		};
+		shared_state.insert(USER_ID, val).unwrap();
+
 		let app = Router::new()
 			.route("/mobil.php", post(mobil))
 			.route("/dat/help.json", get(help))
-			.route("/game", post(game))
 			.route("/client_countries.php", get(countries))
 			.route("/client_friends.php", post(friends))
 			.route("/client_castle.php", get(client_castle))
 			// .route("/client_extdata.php", get(extdata))
+			.layer(Extension(self.db.clone()))
+			.layer(Extension(self.tmp_db.clone()));
+
+		let user_stru = shared_state.get(&USER_ID).unwrap().get().clone();
+
+		let game_router = Router::new()
+			.route("/game", post(game))
+			.layer(Extension(tx))
 			.layer(Extension(self.db))
-			.layer(Extension(self.tmp_db));
+			.layer(Extension(self.tmp_db))
+			.layer(Extension(user_stru))
+			.layer(middleware::from_fn(xml_header_extractor));
+
+		let merged = app.merge(game_router);
+
 		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
-		axum::serve(listener, app.into_make_service())
+		axum::serve(listener, merged.into_make_service())
 			.await
 			.map_err(|e| AppError::from(e))?;
 		Ok(())
 	}
+}
+
+async fn xml_header_extractor(request: Request, next: Next) -> Response {
+	let (parts, body) = request.into_parts();
+	let bytes = body
+		.collect()
+		.await
+		.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())
+		.unwrap()
+		.to_bytes();
+
+	let body = String::from_utf8_lossy(&bytes).to_string();
+	let mut lines: Vec<&str> = body.lines().collect();
+	let xml_header_string = lines.remove(0);
+	let new_body = lines.get(0).unwrap().to_string();
+	let mut req = Request::from_parts(parts, Body::from(new_body));
+
+	let parsed_header = parse_xml_multiple(&xml_header_string).unwrap();
+	req.extensions_mut().insert(parsed_header);
+
+	let response = next.run(req).await;
+	response
 }
 
 #[derive(Debug)]
