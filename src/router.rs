@@ -1,31 +1,28 @@
-use std::collections::HashMap;
+use std::time::Duration;
 
-use anyhow::anyhow;
-use axum::extract::Query;
 use axum::{Extension, Json};
 use fred::clients::RedisPool;
-use fred::prelude::*;
+use scc::Queue;
 use sqlx::PgPool;
-use tokio::sync::broadcast;
-use tracing::warn;
+use tokio::sync::{mpsc};
+use tracing::{trace, warn};
 
-use crate::app::{AppError, PlayerState, SharedState};
+use crate::app::{AppError, SharedPlayerChannel, SharedPlayerState};
 use crate::cdn::countries::CountriesResponse;
 use crate::channels::command::request::{CommandRoot, CommandType};
 use crate::channels::command::response::CommandResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
-use crate::channels::{BodyChannelType, QueryChannelType};
+use crate::channels::BodyChannelType;
 use crate::emulator::Emulator;
 use crate::game_handlers::server_game_handler::ServerGameHandler;
-use crate::game_handlers::wait_for_game_ready;
 use crate::menu::friend_list::external_data::ExternalFriendsRoot;
 use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
-use crate::users::{ServerCommand, User};
+use crate::users::ServerCommand;
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
@@ -44,7 +41,7 @@ pub async fn friends() -> Json<FriendResponse> {
 	Json(FriendResponse::emulate())
 }
 
-pub async fn extdata() -> Json<FriendResponse> {
+pub async fn _extdata() -> Json<FriendResponse> {
 	Json(FriendResponse::emulate())
 }
 
@@ -59,18 +56,18 @@ pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 
 #[axum::debug_handler]
 pub async fn game(
-	tx: Extension<broadcast::Sender<String>>,
 	_db: Extension<PgPool>,
 	tmp_db: Extension<RedisPool>,
-	state: Extension<PlayerState>,
 	xml_header: Extension<BodyChannelType>,
+	player_state: Extension<SharedPlayerState>,
+	// friendly_rooms: Extension<FriendlyRooms>,
+	broadcast: Extension<SharedPlayerChannel<String>>,
 	body: String,
 ) -> Result<String, AppError> {
+	trace!("game handler called");
 	const GAME_ID: u32 = 1;
 	const PLAYER_ID: i32 = 1;
 	const PLAYER_NAME: &str = "xrtxn";
-
-	let rx = tx.subscribe();
 
 	let body = format!("<ROOT>{}</ROOT>", body);
 	match xml_header.0 {
@@ -79,7 +76,9 @@ pub async fn game(
 			match ser.msg_type {
 				CommandType::Login(_) => {
 					// todo validate login
-					User::reset(&tmp_db, PLAYER_ID).await?;
+					player_state.set_login(false).await;
+					player_state.set_listen_ready(false).await;
+					player_state.set_server_command(None).await;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						PLAYER_ID, comm.mn,
 					))?)
@@ -91,10 +90,18 @@ pub async fn game(
 							msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
 						}
 						Waithall::Village => {
-							msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?
+							msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?;
 						}
 					}
-					User::push_listen_queue(&tmp_db, PLAYER_ID, &msg).await?;
+					if broadcast.is_user_listening().await {
+						trace!("sending message to channel");
+						broadcast.send_message(msg).await.unwrap();
+						trace!("sent message to channel");
+					} else {
+						trace!("pushing to listen");
+						// player_state.push_listen(msg).await;
+						trace!("pushed to listen");
+					}
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -121,16 +128,15 @@ pub async fn game(
 				CommandType::AddFriendlyRoom(room) => {
 					// todo handle other cases
 					if room.opp1 == -1 && room.opp2 == -1 {
-						let room_number = ActiveSepRoom::get_next_num(&tmp_db).await?;
-						ActiveSepRoom::new_bots_room(&tmp_db, room_number, PLAYER_ID, PLAYER_NAME)
-							.await?;
-						let xml = ActiveSepRoom::get_active(&tmp_db, room_number).await?;
-						User::push_listen_queue(
-							&tmp_db,
-							PLAYER_ID,
-							&quick_xml::se::to_string(&xml)?,
-						)
-						.await?;
+						// todo get next number
+						let room_number = 1;
+						// friendly_rooms.insert(
+						// room_number,
+						// ActiveSepRoom::new_bot_room(PLAYER_ID, PLAYER_NAME),
+						// );
+						//
+						// let xml = quick_xml::se::to_string(&friendly_rooms.0)?;
+						// broadcast.send_message(xml).await.unwrap();
 					} else {
 						return Ok(modified_xml_response(&CommandResponse::error())?);
 					}
@@ -149,19 +155,16 @@ pub async fn game(
 					))?)
 				}
 				CommandType::GamePlayerReady => {
-					User::set_listen_state(&tmp_db, PLAYER_ID, true).await?;
+					// player_state.set_listen_ready(true).await;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
 					))?)
 				}
 				CommandType::SelectArea(area_selection) => {
-					User::set_server_command(
-						&tmp_db,
-						PLAYER_ID,
-						ServerCommand::SelectArea(area_selection.area),
-					)
-					.await?;
+					player_state
+						.set_server_command(Some(ServerCommand::SelectArea(area_selection.area)))
+						.await;
 
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -169,12 +172,9 @@ pub async fn game(
 					))?)
 				}
 				CommandType::QuestionAnswer(ans) => {
-					User::set_server_command(
-						&tmp_db,
-						PLAYER_ID,
-						ServerCommand::QuestionAnswer(ans.get_answer()),
-					)
-					.await?;
+					player_state
+						.set_server_command(Some(ServerCommand::QuestionAnswer(ans.answer)))
+						.await;
 
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -182,8 +182,9 @@ pub async fn game(
 					))?)
 				}
 				CommandType::PlayerTipResponse(tip) => {
-					User::set_server_command(&tmp_db, PLAYER_ID, ServerCommand::TipAnswer(tip.tip))
-						.await?;
+					player_state
+						.set_server_command(Some(ServerCommand::TipAnswer(tip.tip)))
+						.await;
 
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -194,9 +195,13 @@ pub async fn game(
 		}
 		BodyChannelType::Listen(lis) => {
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
-			User::set_listen_state(&tmp_db, PLAYER_ID, ser.listen.is_ready).await?;
-			if !User::get_is_logged_in(&tmp_db, PLAYER_ID).await? {
-				User::set_is_logged_in(&tmp_db, PLAYER_ID, true).await?;
+
+			player_state.set_listen_ready(ser.listen.is_ready).await;
+
+			trace!("listen state is {}", player_state.get_listen_ready().await);
+			if !player_state.get_login().await {
+				player_state.set_login(true).await;
+				player_state.set_listen_ready(false).await;
 				return Ok(modified_xml_response(&ListenResponse::new(
 					ListenResponseHeader {
 						client_id: lis.client_id,
@@ -207,31 +212,13 @@ pub async fn game(
 				))?);
 			}
 
-			if User::is_listen_empty(&tmp_db, PLAYER_ID).await? {
-				let mut keyspace_rx = {
-					let subscriber = Builder::default_centralized().build()?;
-					subscriber.init().await?;
-					subscriber
-						.psubscribe(format!("__key*__:users:{}:listen_queue", PLAYER_ID))
-						.await?;
-					subscriber.keyspace_event_rx()
-				};
-
-				let mut event = keyspace_rx.recv().await?;
-
-				while event.operation != "rpush" {
-					event = keyspace_rx.recv().await?;
-					continue;
-				}
-				User::set_listen_state(&tmp_db, PLAYER_ID, false).await?;
-				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
-					None => {
-						return Err(AppError::from(anyhow!(
-							"Invalid body xml, possibly without header"
-						)));
-					}
-					Some(res) => res,
-				};
+			let next_listen = player_state.get_next_listen().await;
+			if next_listen.is_none() {
+				trace!("subbed to recv message");
+				let rx = broadcast.new_receiver().await;
+				trace!("got new rx");
+				let msg = SharedPlayerChannel::recv_message(rx).await.unwrap();
+				trace!("recv'd message");
 				Ok(format!(
 					"{}\n{}",
 					quick_xml::se::to_string(&ListenResponseHeader {
@@ -239,20 +226,9 @@ pub async fn game(
 						mn: lis.mn,
 						result: 0,
 					})?,
-					remove_root_tag(next_listen)
+					remove_root_tag(msg)
 				))
 			} else {
-				if !User::get_listen_state(&tmp_db, PLAYER_ID).await? {
-					wait_for_game_ready(&tmp_db, PLAYER_ID).await;
-				}
-				let next_listen = match User::pop_listen_queue(&tmp_db, PLAYER_ID).await {
-					None => {
-						return Err(AppError::from(anyhow!(
-							"Invalid body xml, possibly without header"
-						)));
-					}
-					Some(res) => res,
-				};
 				Ok(format!(
 					"{}\n{}",
 					quick_xml::se::to_string(&ListenResponseHeader {
@@ -260,7 +236,7 @@ pub async fn game(
 						mn: lis.mn,
 						result: 0,
 					})?,
-					remove_root_tag(next_listen)
+					remove_root_tag(next_listen.unwrap())
 				))
 			}
 		}

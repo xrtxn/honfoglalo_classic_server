@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use fred::clients::RedisPool;
 use fred::prelude::*;
-use tracing::{error, trace};
+use tracing::error;
 
 use crate::triviador::areas::Area;
 use crate::triviador::county::County;

@@ -51,7 +51,7 @@ impl QuestionStageResponse {
 #[serde(rename = "ANSWER")]
 pub struct SelfAnswer {
 	#[serde(rename = "@ANSWER")]
-	answer: u8,
+	pub answer: u8,
 }
 
 impl SelfAnswer {

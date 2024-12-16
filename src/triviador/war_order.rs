@@ -1,4 +1,3 @@
-
 use fred::prelude::RedisPool;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;

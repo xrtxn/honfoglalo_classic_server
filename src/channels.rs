@@ -1,15 +1,6 @@
-use std::borrow::Cow;
-use std::error::Error;
-use std::fmt;
-use std::io::Read;
-use std::str::FromStr;
-
 use quick_xml::events::Event;
-use quick_xml::name::QName;
 use quick_xml::reader::Reader;
-use scc::HashMap;
-use serde::de::{self, Visitor};
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::channels::command::request::CommandRequest;
 use crate::channels::command::response::CommandResponseHeader;
@@ -28,29 +19,12 @@ impl ChannelErrorResponse {
 	}
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "CH")]
-pub enum QueryChannelType {
-	#[serde(rename = "C")]
-	Command(CommandRequest),
-	#[serde(rename = "L")]
-	Listen(ListenRequest),
-}
-
 #[derive(Serialize, PartialEq, Clone, Debug)]
 pub enum BodyChannelType {
 	#[serde(rename = "C")]
 	Command(CommandRequest),
 	#[serde(rename = "L")]
 	Listen(ListenRequest),
-}
-
-#[derive(Deserialize)]
-struct CommandRequestHelper {
-	#[serde(rename = "CID")]
-	client_id: i32,
-	#[serde(rename = "MN")]
-	mn: u32,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -142,8 +116,6 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 
 #[cfg(test)]
 mod tests {
-	use serde_test::{assert_ser_tokens, Token};
-
 	use super::*;
 
 	#[test]

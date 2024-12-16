@@ -24,8 +24,9 @@ fastrand = "2.1.1"
 futures = "0.3"
 #todo check performance
 rand = "0.8"
-scc = "2.2.5"
+scc = { version = "2.2.5", features = ["serde"] }
 http-body-util = "0.1.2"
+flume = "0.11.1"
 
 [dev-dependencies]
 serde_test = "1"

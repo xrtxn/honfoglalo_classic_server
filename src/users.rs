@@ -6,6 +6,7 @@ use tracing::log::warn;
 use tracing::trace;
 
 pub struct User {}
+#[derive(Clone, Debug)]
 pub enum ServerCommand {
 	SelectArea(u8),
 	QuestionAnswer(u8),
@@ -40,21 +41,6 @@ impl FromStr for ServerCommand {
 	}
 }
 impl User {
-	pub async fn reset(temp_pool: &RedisPool, id: i32) -> Result<(), anyhow::Error> {
-		// todo reset properly
-		let _: String = temp_pool.flushall(false).await?;
-		let _: bool = temp_pool
-			.set(
-				format!("users:{}:is_logged_in", id),
-				false,
-				None,
-				None,
-				false,
-			)
-			.await?;
-		Ok(())
-	}
-
 	pub async fn push_listen_queue(
 		temp_pool: &RedisPool,
 		id: i32,
@@ -66,96 +52,11 @@ impl User {
 		Ok(())
 	}
 
-	pub async fn pop_listen_queue(temp_pool: &RedisPool, id: i32) -> Option<String> {
-		let res: Option<String> = temp_pool
-			.lpop(format!("users:{}:listen_queue", id), Some(1))
-			.await
-			.unwrap_or_else(|_| None);
-		res
-	}
-
-	pub async fn is_listen_empty(temp_pool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
-		let res: u8 = temp_pool
-			.exists(format!("users:{}:listen_queue", id))
-			.await?;
-		Ok(res == 0)
-	}
-
 	pub async fn is_listen_ready(temp_pool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
 		let res: String = temp_pool
 			.get(format!("users:{}:is_listen_ready", id))
 			.await?;
 		Ok(res.parse::<bool>()?)
-	}
-	pub async fn set_listen_state(
-		temp_pool: &RedisPool,
-		id: i32,
-		is_ready: bool,
-	) -> Result<(), anyhow::Error> {
-		// debug purposes
-		if Self::get_listen_state(temp_pool, id).await? == is_ready {
-			warn!("Listen state already set to {}", is_ready);
-			return Ok(());
-		}
-		let _: bool = temp_pool
-			.set(
-				format!("users:{}:is_listen_ready", id),
-				is_ready,
-				None,
-				None,
-				false,
-			)
-			.await?;
-		Ok(())
-	}
-
-	pub async fn get_listen_state(temp_pool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
-		let res: bool = temp_pool
-			.get(format!("users:{}:is_listen_ready", id))
-			.await
-			.unwrap_or_else(|_| false);
-		Ok(res)
-	}
-
-	pub async fn get_is_logged_in(temp_pool: &RedisPool, id: i32) -> Result<bool, anyhow::Error> {
-		let res: String = temp_pool.get(format!("users:{}:is_logged_in", id)).await?;
-		Ok(res.parse::<bool>()?)
-	}
-
-	pub async fn set_is_logged_in(
-		temp_pool: &RedisPool,
-		id: i32,
-		is_logged_in: bool,
-	) -> Result<bool, anyhow::Error> {
-		let res: bool = temp_pool
-			.set(
-				format!("users:{}:is_logged_in", id),
-				is_logged_in,
-				None,
-				None,
-				false,
-			)
-			.await?;
-		Ok(res)
-	}
-
-	// this approach may not work for all commands
-	pub async fn set_server_command(
-		temp_pool: &RedisPool,
-		id: i32,
-		command: ServerCommand,
-	) -> Result<(), anyhow::Error> {
-		// trace!("Setting server command: {}", command);
-		let _: String = temp_pool
-			.set(
-				format!("users:{}:server_command", id),
-				command.to_string(),
-				None,
-				None,
-				false,
-			)
-			.await?;
-		Ok(())
 	}
 
 	pub async fn clear_server_command(temp_pool: &RedisPool, id: i32) -> Result<(), anyhow::Error> {
