@@ -7,15 +7,16 @@ use tracing::{error, trace, warn};
 
 use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType};
 use crate::game_handlers::s_game::SGamePlayer;
-use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
+use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::cmd::Cmd;
 use crate::triviador::county::County;
+use crate::triviador::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
-use crate::users::{ServerCommand, User};
+use crate::users::ServerCommand;
 
 #[derive(PartialEq, Clone)]
 enum BattleHandlerPhases {
@@ -60,17 +61,20 @@ impl BattleHandlerPhases {
 }
 
 pub(crate) struct BattleHandler {
+	game: SharedTrivGame,
 	state: BattleHandlerPhases,
 	players: Vec<SGamePlayer>,
-	game_id: u32,
 }
 
 impl BattleHandler {
-	pub(crate) fn new(players: Vec<SGamePlayer>, game_id: u32) -> BattleHandler {
+	pub(crate) fn new(
+		game: SharedTrivGame,
+		players: Vec<SGamePlayer>,
+	) -> BattleHandler {
 		BattleHandler {
+			game,
 			state: BattleHandlerPhases::Setup,
 			players,
-			game_id,
 		}
 	}
 
@@ -91,132 +95,133 @@ impl BattleHandler {
 		temp_pool: &RedisPool,
 		active_player: Option<SGamePlayer>,
 	) {
-		match self.state {
-			BattleHandlerPhases::Setup => {
-				Self::battle_setup(temp_pool, self.game_id).await.unwrap();
-			}
-			BattleHandlerPhases::Announcement => {
-				GameState::set_phase(temp_pool, self.game_id, 0)
-					.await
-					.unwrap();
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
-				}
-				trace!("Battle announcement waiting");
-				wait_for_game_ready(temp_pool, 1).await;
-				trace!("Battle announcement game ready");
-			}
-			BattleHandlerPhases::AskAttackingArea => {
-				let active_player = active_player.unwrap();
-				temp_pool
-					.set::<String, _, _>(
-						format!("games:{}:send_player", self.game_id),
-						active_player.rel_id,
-						None,
-						None,
-						false,
-					)
-					.await
-					.unwrap();
-				Self::ask_area_battle_backend(temp_pool, self.game_id, active_player.rel_id)
-					.await
-					.unwrap();
-				if active_player.is_player() {
-					let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
-					Cmd::set_player_cmd(
-						temp_pool,
-						active_player.id,
-						Cmd::select_command(available, 90),
-					)
-					.await
-					.unwrap();
-				}
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
-				}
-				trace!("Send select cmd waiting");
-				wait_for_game_ready(temp_pool, 1).await;
-				trace!("Send select cmd game ready");
-			}
-			BattleHandlerPhases::AttackedAreaResponse => {
-				let active_player = active_player.unwrap();
-				if !active_player.is_player() {
-					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
-						.await
-						.unwrap();
+		todo!();
+		// match self.state {
+		// 	BattleHandlerPhases::Setup => {
+		// 		Self::battle_setup(temp_pool, self.game_id).await.unwrap();
+		// 	}
+		// 	BattleHandlerPhases::Announcement => {
+		// 		GameState::set_phase(temp_pool, self.game_id, 0)
+		// 			.await
+		// 			.unwrap();
+		// 		for player in self.players.iter().filter(|x| x.is_player()) {
+		// 			send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+		// 		}
+		// 		trace!("Battle announcement waiting");
+		// 		wait_for_game_ready(temp_pool, 1).await;
+		// 		trace!("Battle announcement game ready");
+		// 	}
+		// 	BattleHandlerPhases::AskAttackingArea => {
+		// 		let active_player = active_player.unwrap();
+		// 		temp_pool
+		// 			.set::<String, _, _>(
+		// 				format!("games:{}:send_player", self.game_id),
+		// 				active_player.rel_id,
+		// 				None,
+		// 				None,
+		// 				false,
+		// 			)
+		// 			.await
+		// 			.unwrap();
+		// 		Self::ask_area_battle_backend(temp_pool, self.game_id, active_player.rel_id)
+		// 			.await
+		// 			.unwrap();
+		// 		if active_player.is_player() {
+		// 			let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
+		// 			Cmd::set_player_cmd(
+		// 				temp_pool,
+		// 				active_player.id,
+		// 				Cmd::select_command(available, 90),
+		// 			)
+		// 			.await
+		// 			.unwrap();
+		// 		}
+		// 		for player in self.players.iter().filter(|x| x.is_player()) {
+		// 			send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+		// 		}
+		// 		trace!("Send select cmd waiting");
+		// 		wait_for_game_ready(temp_pool, 1).await;
+		// 		trace!("Send select cmd game ready");
+		// 	}
+		// 	BattleHandlerPhases::AttackedAreaResponse => {
+		// 		let active_player = active_player.unwrap();
+		// 		if !active_player.is_player() {
+		// 			let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
+		// 				.await
+		// 				.unwrap();
 
-					let mut rng = StdRng::from_entropy();
-					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-					BattleHandler::new_area_selected(
-						temp_pool,
-						self.game_id,
-						random_area as u8,
-						active_player.rel_id,
-					)
-					.await
-					.unwrap();
-				} else {
-					player_timeout_timer(temp_pool, active_player.id, Duration::from_secs(60))
-						.await;
-					Cmd::clear_cmd(temp_pool, active_player.id).await.unwrap();
+		// 			let mut rng = StdRng::from_entropy();
+		// 			let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
+		// 			BattleHandler::new_area_selected(
+		// 				temp_pool,
+		// 				self.game_id,
+		// 				random_area as u8,
+		// 				active_player.rel_id,
+		// 			)
+		// 			.await
+		// 			.unwrap();
+		// 		} else {
+		// 			player_timeout_timer(temp_pool, active_player.id, Duration::from_secs(60))
+		// 				.await;
+		// 			Cmd::clear_cmd(temp_pool, active_player.id).await.unwrap();
 
-					match User::get_server_command(temp_pool, active_player.id)
-						.await
-						.unwrap()
-					{
-						ServerCommand::SelectArea(val) => {
-							BattleHandler::new_area_selected(
-								temp_pool,
-								self.game_id,
-								val,
-								active_player.rel_id,
-							)
-							.await
-							.unwrap();
-						}
-						_ => {
-							warn!("Invalid command");
-						}
-					}
-				}
-				BattleHandler::area_selected_stage(temp_pool, self.game_id)
-					.await
-					.unwrap();
+		// 			match User::get_server_command(temp_pool, active_player.id)
+		// 				.await
+		// 				.unwrap()
+		// 			{
+		// 				ServerCommand::SelectArea(val) => {
+		// 					BattleHandler::new_area_selected(
+		// 						temp_pool,
+		// 						self.game_id,
+		// 						val,
+		// 						active_player.rel_id,
+		// 					)
+		// 					.await
+		// 					.unwrap();
+		// 				}
+		// 				_ => {
+		// 					warn!("Invalid command");
+		// 				}
+		// 			}
+		// 		}
+		// 		BattleHandler::area_selected_stage(temp_pool, self.game_id)
+		// 			.await
+		// 			.unwrap();
 
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
-				}
-				trace!("Common game ready waiting");
-				wait_for_game_ready(temp_pool, 1).await;
-				trace!("Common game ready");
-			}
-			BattleHandlerPhases::Question => {
-				let mut qh = QuestionHandler::new(
-					QuestionHandlerType::Battle,
-					self.players.clone(),
-					self.game_id,
-				)
-				.await;
-				qh.handle_all(temp_pool).await;
-			}
-			BattleHandlerPhases::SendUpdatedState => {
-				wait_for_game_ready(temp_pool, 1).await;
-			}
-		}
+		// 		for player in self.players.iter().filter(|x| x.is_player()) {
+		// 			send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+		// 		}
+		// 		trace!("Common game ready waiting");
+		// 		wait_for_game_ready(temp_pool, 1).await;
+		// 		trace!("Common game ready");
+		// 	}
+		// 	BattleHandlerPhases::Question => {
+		// 		let mut qh = QuestionHandler::new(
+		// 			QuestionHandlerType::Battle,
+		// 			self.players.clone(),
+		// 			self.game_id,
+		// 		)
+		// 		.await;
+		// 		qh.handle_all(temp_pool).await;
+		// 	}
+		// 	BattleHandlerPhases::SendUpdatedState => {
+		// 		wait_for_game_ready(temp_pool, 1).await;
+		// 	}
+		// }
 	}
 
 	async fn battle_setup(temp_pool: &RedisPool, game_id: u32) -> Result<(), anyhow::Error> {
-		let _: u8 = GameState::set_gamestate(
-			temp_pool,
-			game_id,
-			GameState {
-				state: 4,
-				round: 1,
-				phase: 0,
-			},
-		)
-		.await?;
-		AvailableAreas::set_available(temp_pool, game_id, AvailableAreas::all_counties()).await?;
+		// let _: u8 = GameState::set_gamestate(
+		// 	temp_pool,
+		// 	game_id,
+		// 	GameState {
+		// 		state: 4,
+		// 		round: 1,
+		// 		phase: 0,
+		// 	},
+		// )
+		// .await?;
+		// AvailableAreas::set_available(temp_pool, game_id, AvailableAreas::all_counties()).await?;
 		Ok(())
 	}
 
@@ -225,21 +230,21 @@ impl BattleHandler {
 		game_id: u32,
 		game_player_id: u8,
 	) -> Result<(), anyhow::Error> {
-		// sets phase to 1
-		let mut res = GameState::set_phase(temp_pool, game_id, 1).await?;
-		let mut ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
-		ri.mini_phase_num += 1;
+		// // sets phase to 1
+		// let mut res = GameState::set_phase(temp_pool, game_id, 1).await?;
+		// let mut ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
+		// ri.mini_phase_num += 1;
 
-		res += RoundInfo::set_roundinfo(
-			temp_pool,
-			game_id,
-			RoundInfo {
-				mini_phase_num: ri.mini_phase_num,
-				rel_player_id: game_player_id,
-				attacked_player: Some(0),
-			},
-		)
-		.await?;
+		// res += RoundInfo::set_roundinfo(
+		// 	temp_pool,
+		// 	game_id,
+		// 	RoundInfo {
+		// 		mini_phase_num: ri.mini_phase_num,
+		// 		rel_player_id: game_player_id,
+		// 		attacked_player: Some(0),
+		// 	},
+		// )
+		// .await?;
 		Ok(())
 	}
 
@@ -247,9 +252,9 @@ impl BattleHandler {
 		temp_pool: &RedisPool,
 		game_id: u32,
 	) -> Result<u8, anyhow::Error> {
-		// sets phase to 3
-		let res: u8 = GameState::incr_phase(temp_pool, game_id, 2).await?;
-		Ok(res)
+		// // sets phase to 3
+		// let res: u8 = GameState::incr_phase(temp_pool, game_id, 2).await?;
+		Ok(todo!())
 	}
 
 	pub async fn new_area_selected(
@@ -260,13 +265,13 @@ impl BattleHandler {
 	) -> Result<u8, anyhow::Error> {
 		// AvailableAreas::pop_county(temp_pool, game_id, County::try_from(selected_area)?).await?;
 
-		let mut prev = Selection::get_redis(temp_pool, game_id).await?;
-		prev.add_selection(
-			PlayerNames::try_from(game_player_id)?,
-			County::try_from(selected_area)?,
-		);
-		let res = Selection::set_redis(temp_pool, game_id, prev).await?;
-
-		Ok(res)
+		// let mut prev = Selection::get_redis(temp_pool, game_id).await?;
+		// prev.add_selection(
+		// 	PlayerNames::try_from(game_player_id)?,
+		// 	County::try_from(selected_area)?,
+		// );
+		// let res = Selection::set_redis(temp_pool, game_id, prev).await?;
+		todo!();
+		Ok(todo!())
 	}
 }

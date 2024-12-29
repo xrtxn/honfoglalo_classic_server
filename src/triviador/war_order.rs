@@ -1,10 +1,9 @@
-use fred::prelude::RedisPool;
-use rand::prelude::SliceRandom;
 use rand::thread_rng;
+use rand::prelude::SliceRandom;
+use serde::{Serialize, Serializer};
 use tracing::error;
 
-use crate::triviador::triviador_state::TriviadorState;
-
+#[derive(Debug, Clone)]
 pub struct WarOrder {
 	pub order: Vec<u8>,
 }
@@ -34,26 +33,6 @@ impl WarOrder {
 		serialized
 	}
 
-	pub(crate) async fn set_redis(
-		&self,
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<u8, anyhow::Error> {
-		TriviadorState::set_field(temp_pool, game_id, "war_order", self.serialize().as_str()).await
-	}
-
-	pub(crate) async fn get_redis(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<WarOrder, anyhow::Error> {
-		let order = TriviadorState::get_field(temp_pool, game_id, "war_order").await?;
-		let mut order_vec = Vec::with_capacity(order.len());
-		for c in order.chars() {
-			order_vec.push(c.to_digit(10).unwrap() as u8);
-		}
-		Ok(WarOrder { order: order_vec })
-	}
-
 	pub(crate) fn get_next_players(
 		&self,
 		start: usize,
@@ -70,6 +49,15 @@ impl WarOrder {
 		} else {
 			Err(anyhow::anyhow!("Index out of bounds"))
 		}
+	}
+}
+
+impl Serialize for WarOrder {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(&Self::serialize(&self))
 	}
 }
 

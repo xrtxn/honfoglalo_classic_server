@@ -1,9 +1,8 @@
 use std::collections::HashMap;
 
-use fred::clients::RedisPool;
-use fred::prelude::*;
 use serde::{Serialize, Serializer};
 
+use super::game::{SharedTrivGame, TriviadorGame};
 use crate::triviador::game_player_data::PlayerNames;
 use crate::utils::split_string_n;
 
@@ -56,33 +55,11 @@ pub struct Bases {
 }
 
 impl Bases {
-	pub async fn get_redis(temp_pool: &RedisPool, game_id: u32) -> Result<Self, anyhow::Error> {
-		let res: String = temp_pool
-			.hget(format!("games:{}:triviador_state", game_id), "base_info")
-			.await?;
-		let rest = Self::deserialize_full(&res)?;
-		Ok(rest)
-	}
-
-	pub async fn set_redis(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		bases: Bases,
-	) -> Result<u8, anyhow::Error> {
-		let res: u8 = temp_pool
-			.hset(
-				format!("games:{}:triviador_state", game_id),
-				[("base_info", Bases::serialize_full(&bases)?)],
-			)
-			.await?;
-		Ok(res)
-	}
-
-	pub fn serialize_full(bases: &Bases) -> Result<String, anyhow::Error> {
+	pub fn serialize_full(&self) -> Result<String, anyhow::Error> {
 		// later this may not be 38 for different countries
 		let mut serialized = String::with_capacity(6);
 		for i in 1..4 {
-			match bases.every_base.get(&PlayerNames::try_from(i)?) {
+			match self.every_base.get(&PlayerNames::try_from(i)?) {
 				None => serialized.push_str("00"),
 				Some(base) => serialized.push_str(&base.serialize_to_hex()),
 			}
@@ -110,16 +87,11 @@ impl Bases {
 	}
 
 	pub async fn add_base(
-		temp_pool: &RedisPool,
-		game_id: u32,
+		game: SharedTrivGame,
 		player: PlayerNames,
 		base: Base,
 	) -> Result<(), anyhow::Error> {
-		let mut bases = Bases::get_redis(temp_pool, game_id).await?;
-
-		bases.every_base.insert(player, base);
-
-		Self::set_redis(temp_pool, game_id, bases).await?;
+		game.write().await.state.base_info.every_base.insert(player, base);
 		Ok(())
 	}
 }

@@ -43,12 +43,8 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 	let mut mn = 0;
 	let mut buf = Vec::new();
 
-	// The `Reader` does not implement `Iterator` because it outputs borrowed data (`Cow`s)
 	loop {
 		let event = reader.read_event_into(&mut buf);
-		// NOTE: this is the generic case when we don't know about the input BufRead.
-		// when the input is a &str or a &[u8], we don't actually need to use another
-		// buffer, we could directly call `reader.read_event()`
 		match event {
 			Err(e) => panic!("Error at position {}: {:?}", reader.error_position(), e),
 			// exits the loop when reaching end of file
@@ -102,7 +98,6 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 				_ => println!("Other character"),
 			},
 
-			// There are several other `Event`s we do not consider here
 			_ => println!("Other event"),
 		}
 		buf.clear();
@@ -121,8 +116,6 @@ mod tests {
 	#[test]
 	fn test_deserialize_body_channel_type() {
 		let xml = r#"<C CID="1" MN="1" />"#;
-		// let body_channel_type = parse_xml_multiple(xml);
-		// let body_channel_type: BodyChannelType = quick_xml::de::from_str(xml).unwrap();
 		let direct = parse_xml_multiple(xml);
 		assert_eq!(
 			direct.unwrap(),

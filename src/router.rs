@@ -1,13 +1,10 @@
-use std::time::Duration;
-
 use axum::{Extension, Json};
-use fred::clients::RedisPool;
-use scc::Queue;
 use sqlx::PgPool;
-use tokio::sync::{mpsc};
 use tracing::{trace, warn};
 
-use crate::app::{AppError, SharedPlayerChannel, SharedPlayerState};
+use crate::app::{
+	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
+};
 use crate::cdn::countries::CountriesResponse;
 use crate::channels::command::request::{CommandRoot, CommandType};
 use crate::channels::command::response::CommandResponse;
@@ -57,11 +54,11 @@ pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 #[axum::debug_handler]
 pub async fn game(
 	_db: Extension<PgPool>,
-	tmp_db: Extension<RedisPool>,
 	xml_header: Extension<BodyChannelType>,
 	player_state: Extension<SharedPlayerState>,
-	// friendly_rooms: Extension<FriendlyRooms>,
-	broadcast: Extension<SharedPlayerChannel<String>>,
+	friendly_rooms: Extension<FriendlyRooms>,
+	player_channel: Extension<XmlPlayerChannel>,
+	server_command_channel: Extension<ServerCommandChannel>,
 	body: String,
 ) -> Result<String, AppError> {
 	trace!("game handler called");
@@ -78,7 +75,6 @@ pub async fn game(
 					// todo validate login
 					player_state.set_login(false).await;
 					player_state.set_listen_ready(false).await;
-					player_state.set_server_command(None).await;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						PLAYER_ID, comm.mn,
 					))?)
@@ -93,15 +89,7 @@ pub async fn game(
 							msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?;
 						}
 					}
-					if broadcast.is_user_listening().await {
-						trace!("sending message to channel");
-						broadcast.send_message(msg).await.unwrap();
-						trace!("sent message to channel");
-					} else {
-						trace!("pushing to listen");
-						// player_state.push_listen(msg).await;
-						trace!("pushed to listen");
-					}
+					player_channel.send_message(msg).await.unwrap();
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -126,17 +114,27 @@ pub async fn game(
 					))?)
 				}
 				CommandType::AddFriendlyRoom(room) => {
+					trace!("add friendly room");
 					// todo handle other cases
 					if room.opp1 == -1 && room.opp2 == -1 {
 						// todo get next number
 						let room_number = 1;
-						// friendly_rooms.insert(
-						// room_number,
-						// ActiveSepRoom::new_bot_room(PLAYER_ID, PLAYER_NAME),
-						// );
-						//
-						// let xml = quick_xml::se::to_string(&friendly_rooms.0)?;
-						// broadcast.send_message(xml).await.unwrap();
+						friendly_rooms
+							.insert(
+								room_number,
+								ActiveSepRoom::new_bot_room(PLAYER_ID, PLAYER_NAME),
+							)
+							.unwrap();
+						trace!("friendly_rooms.0:{:?}", friendly_rooms.0);
+
+						let xml = quick_xml::se::to_string(
+							&friendly_rooms
+								.0
+								.read(&room_number, |_, v| v.clone())
+								.unwrap(),
+						)?;
+						player_channel.send_message(xml).await.unwrap();
+						trace!("friendly room added");
 					} else {
 						return Ok(modified_xml_response(&CommandResponse::error())?);
 					}
@@ -147,7 +145,11 @@ pub async fn game(
 				}
 				CommandType::StartTriviador(_) => {
 					tokio::spawn(async move {
-						ServerGameHandler::new_friendly(&tmp_db, GAME_ID).await;
+						ServerGameHandler::new_friendly(
+							player_channel.0,
+							server_command_channel.0,
+							GAME_ID,
+						).await;
 					});
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -155,16 +157,18 @@ pub async fn game(
 					))?)
 				}
 				CommandType::GamePlayerReady => {
-					// player_state.set_listen_ready(true).await;
+					server_command_channel
+						.send_message(ServerCommand::Ready)
+						.await?;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
 					))?)
 				}
 				CommandType::SelectArea(area_selection) => {
-					player_state
-						.set_server_command(Some(ServerCommand::SelectArea(area_selection.area)))
-						.await;
+					server_command_channel
+						.send_message(ServerCommand::SelectArea(area_selection.area))
+						.await?;
 
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -172,9 +176,9 @@ pub async fn game(
 					))?)
 				}
 				CommandType::QuestionAnswer(ans) => {
-					player_state
-						.set_server_command(Some(ServerCommand::QuestionAnswer(ans.answer)))
-						.await;
+					server_command_channel
+						.send_message(ServerCommand::QuestionAnswer(ans.answer))
+						.await?;
 
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -182,9 +186,9 @@ pub async fn game(
 					))?)
 				}
 				CommandType::PlayerTipResponse(tip) => {
-					player_state
-						.set_server_command(Some(ServerCommand::TipAnswer(tip.tip)))
-						.await;
+					server_command_channel
+						.send_message(ServerCommand::TipAnswer(tip.tip))
+						.await?;
 
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -212,33 +216,17 @@ pub async fn game(
 				))?);
 			}
 
-			let next_listen = player_state.get_next_listen().await;
-			if next_listen.is_none() {
-				trace!("subbed to recv message");
-				let rx = broadcast.new_receiver().await;
-				trace!("got new rx");
-				let msg = SharedPlayerChannel::recv_message(rx).await.unwrap();
-				trace!("recv'd message");
-				Ok(format!(
-					"{}\n{}",
-					quick_xml::se::to_string(&ListenResponseHeader {
-						client_id: PLAYER_ID,
-						mn: lis.mn,
-						result: 0,
-					})?,
-					remove_root_tag(msg)
-				))
-			} else {
-				Ok(format!(
-					"{}\n{}",
-					quick_xml::se::to_string(&ListenResponseHeader {
-						client_id: PLAYER_ID,
-						mn: lis.mn,
-						result: 0,
-					})?,
-					remove_root_tag(next_listen.unwrap())
-				))
-			}
+			let msg = player_channel.recv_message().await.unwrap();
+			trace!("recv'd message");
+			Ok(format!(
+				"{}\n{}",
+				quick_xml::se::to_string(&ListenResponseHeader {
+					client_id: PLAYER_ID,
+					mn: lis.mn,
+					result: 0,
+				})?,
+				remove_root_tag(msg)
+			))
 		}
 	}
 }

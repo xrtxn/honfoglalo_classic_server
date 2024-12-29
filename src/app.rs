@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::Request;
@@ -9,11 +9,9 @@ use axum::routing::{get, post};
 use axum::{middleware, Extension, Router};
 use fred::prelude::*;
 use http_body_util::BodyExt;
-use scc::{HashMap, Queue};
-use serde::Serialize;
+use scc::HashMap;
 use sqlx::postgres::PgPool;
-use tokio::sync::broadcast::Receiver;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::RwLock;
 use tracing::trace;
 
 use crate::channels::parse_xml_multiple;
@@ -21,31 +19,13 @@ use crate::router::{client_castle, countries, friends, game, help, mobil};
 use crate::users::ServerCommand;
 use crate::village::start::friendly_game::ActiveSepRoom;
 
-// #[derive(Serialize, Clone, Debug)]
-// pub struct FriendlyRooms(HashMap<i32, ActiveSepRoom>);
-//
-// impl FriendlyRooms {
-// pub fn new() -> Self {
-// FriendlyRooms(HashMap::new())
-// }
-//
-// pub fn insert(&mut self, key: i32, val: ActiveSepRoom) {
-// self.0.insert(key, val).unwrap();
-// }
-//
-// pub fn get(&self, key: &i32) {
-// self.0.get(key).unwrap();
-// }
-// }
-
+pub type FriendlyRooms = HashMap<i32, ActiveSepRoom>;
 pub type SharedState = HashMap<i32, SharedPlayerState>;
 
 #[derive(Debug)]
 struct PlayerState {
 	pub is_logged_in: RwLock<bool>,
 	pub is_listen_ready: RwLock<bool>,
-	pub server_command: RwLock<Option<ServerCommand>>,
-	pub listen_queue: Queue<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -56,79 +36,48 @@ impl SharedPlayerState {
 		let val = PlayerState {
 			is_logged_in: RwLock::new(false),
 			is_listen_ready: RwLock::new(false),
-			server_command: RwLock::new(None),
-			listen_queue: Queue::default(),
 		};
 		SharedPlayerState(Arc::new(val))
 	}
 
 	pub async fn get_login(&self) -> bool {
-		*self.0.is_logged_in.read().unwrap()
+		*self.0.is_logged_in.read().await
 	}
-
 	pub async fn get_listen_ready(&self) -> bool {
-		*self.0.is_listen_ready.read().unwrap()
-	}
-
-	pub async fn get_server_command(&self) -> Option<ServerCommand> {
-		self.0.server_command.read().unwrap().clone()
-	}
-
-	pub async fn get_next_listen(&self) -> Option<String> {
-		self.0.listen_queue.pop().map(|x| x.to_string())
+		*self.0.is_listen_ready.read().await
 	}
 
 	pub async fn set_login(&self, val: bool) {
-		*self.0.is_logged_in.write().unwrap() = val;
+		*self.0.is_logged_in.write().await = val;
 	}
 	pub async fn set_listen_ready(&self, val: bool) {
-		*self.0.is_listen_ready.write().unwrap() = val;
-	}
-	pub async fn set_server_command(&self, val: Option<ServerCommand>) {
-		*self.0.server_command.write().unwrap() = val;
-	}
-	pub async fn push_listen(&self, msg: String) {
-		self.0.listen_queue.push(msg);
+		*self.0.is_listen_ready.write().await = val;
 	}
 }
 
-#[derive(Debug)]
-struct PlayerChannel<T: Clone> {
-	tx: broadcast::Sender<T>,
-	// rx: broadcast::Receiver<T>,
+#[derive(Clone, Debug)]
+pub struct PlayerChannel<T: Clone> {
+	tx: flume::Sender<T>,
+	rx: flume::Receiver<T>,
 }
 
 impl<T: Clone> PlayerChannel<T> {
 	fn new() -> Self {
-		let (tx, rx) = broadcast::channel(8);
-		PlayerChannel { tx }
+		let (tx, rx) = flume::bounded(8);
+		PlayerChannel { tx, rx }
+	}
+
+	pub async fn send_message(&self, msg: T) -> Result<(), flume::SendError<T>> {
+		self.tx.send_async(msg).await
+	}
+
+	pub async fn recv_message(&self) -> Result<T, flume::RecvError> {
+		self.rx.recv_async().await
 	}
 }
 
-#[derive(Clone)]
-pub struct SharedPlayerChannel<T: Clone>(Arc<RwLock<PlayerChannel<T>>>);
-
-impl<T: Clone> SharedPlayerChannel<T> {
-	pub fn new() -> Self {
-		SharedPlayerChannel(Arc::new(RwLock::new(PlayerChannel::new())))
-	}
-
-	pub async fn new_receiver(&self) -> Receiver<T> {
-	   self.0.read().unwrap().tx.subscribe()
-	}
-
-	pub async fn send_message(&self, msg: T) -> Result<usize, broadcast::error::SendError<T>> {
-		self.0.read().unwrap().tx.send(msg)
-	}
-
-	pub async fn recv_message(mut receiver: Receiver<T>) -> Result<T, broadcast::error::RecvError> {
-		receiver.recv().await
-	}
-
-	pub async fn is_user_listening(&self) -> bool {
-		self.0.read().unwrap().tx.receiver_count() >= 1
-	}
-}
+pub type ServerCommandChannel = PlayerChannel<ServerCommand>;
+pub type XmlPlayerChannel = PlayerChannel<String>;
 
 pub struct App {
 	db: PgPool,
@@ -160,10 +109,11 @@ impl App {
 		// todo use a middleware instead
 		const USER_ID: i32 = 1;
 
-		// let friendly_rooms: FriendlyRooms = FriendlyRooms(HashMap::new());
+		let friendly_rooms: FriendlyRooms = HashMap::new();
 		let shared_state: SharedState = HashMap::new();
 		let val = SharedPlayerState::new();
-		let player_channel: SharedPlayerChannel<String> = SharedPlayerChannel::new();
+		let player_channel: XmlPlayerChannel = PlayerChannel::new();
+		let server_command_channel: ServerCommandChannel = ServerCommandChannel::new();
 
 		shared_state.insert(USER_ID, val).unwrap();
 
@@ -183,10 +133,10 @@ impl App {
 			.route("/game", post(game))
 			.route_layer(middleware::from_fn(xml_header_extractor))
 			.layer(Extension(self.db.clone()))
-			.layer(Extension(self.tmp_db.clone()))
 			.layer(Extension(user_state.clone()))
-			// .layer(Extension(friendly_rooms))
-			.layer(Extension(player_channel.clone()));
+			.layer(Extension(friendly_rooms))
+			.layer(Extension(player_channel))
+			.layer(Extension(server_command_channel));
 
 		let merged = app.merge(game_router);
 
@@ -199,24 +149,26 @@ impl App {
 }
 
 async fn xml_header_extractor(request: Request, next: Next) -> Response {
-    println!("middleware called");
-	let (parts, body) = request.into_parts();
-	let bytes = body
-		.collect()
-		.await
-		.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())
-		.unwrap()
-		.to_bytes();
+	let req = {
+		let (parts, body) = request.into_parts();
+		let bytes = body
+			.collect()
+			.await
+			.map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response())
+			.unwrap()
+			.to_bytes();
 
-	let body = String::from_utf8_lossy(&bytes).to_string();
-	let mut lines: Vec<&str> = body.lines().collect();
-	println!("lines: {:?}", lines);
-	let xml_header_string = lines.remove(0);
-	let new_body = lines.get(0).unwrap().to_string();
-	let mut req = Request::from_parts(parts, Body::from(new_body));
+		let body = String::from_utf8_lossy(&bytes).to_string();
+		let mut lines: Vec<&str> = body.lines().collect();
+		println!("lines: {:?}", lines);
+		let xml_header_string = lines.remove(0);
+		let new_body = lines.get(0).unwrap().to_string();
+		let mut req = Request::from_parts(parts, Body::from(new_body));
 
-	let parsed_header = parse_xml_multiple(&xml_header_string).unwrap();
-	req.extensions_mut().insert(parsed_header);
+		let parsed_header = parse_xml_multiple(&xml_header_string).unwrap();
+		req.extensions_mut().insert(parsed_header);
+		req
+	};
 
 	let response = next.run(req).await;
 	response
@@ -236,7 +188,7 @@ impl IntoResponse for AppError {
 }
 
 // This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, AppError>`. That way you don't need to do that manually.
+// `Result<_, AppError>`.
 impl<E> From<E> for AppError
 where
 	E: Into<anyhow::Error>,

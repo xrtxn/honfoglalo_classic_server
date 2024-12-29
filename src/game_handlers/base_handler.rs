@@ -1,22 +1,20 @@
-use std::time::Duration;
-
-use fred::clients::RedisPool;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{trace, warn};
 
 use crate::game_handlers::s_game::SGamePlayer;
-use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
+use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::bases::{Base, Bases};
 use crate::triviador::cmd::Cmd;
 use crate::triviador::county::County;
+use crate::triviador::game::{SharedTrivGame, TriviadorGame};
 use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::triviador_state::TriviadorState;
-use crate::users::{ServerCommand, User};
+use crate::users::ServerCommand;
 
 #[derive(PartialEq, Clone)]
 enum BaseHandlerPhases {
@@ -40,17 +38,17 @@ impl BaseHandlerPhases {
 }
 
 pub(crate) struct BaseHandler {
+	game: SharedTrivGame,
 	state: BaseHandlerPhases,
 	players: Vec<SGamePlayer>,
-	game_id: u32,
 }
 
 impl BaseHandler {
-	pub(crate) fn new(players: Vec<SGamePlayer>, game_id: u32) -> BaseHandler {
+	pub(crate) fn new(game: SharedTrivGame, players: Vec<SGamePlayer>) -> BaseHandler {
 		BaseHandler {
+			game,
 			state: BaseHandlerPhases::Announcement,
 			players,
-			game_id,
 		}
 	}
 
@@ -62,181 +60,128 @@ impl BaseHandler {
 		self.state = BaseHandlerPhases::StartSelection;
 	}
 
-	pub(crate) async fn command(&mut self, temp_pool: &RedisPool, active_player: SGamePlayer) {
+	pub(crate) async fn command(&mut self) {
+		let active_player = self.game.read().await.state.active_player.clone().unwrap();
+		trace!("active player: {:?}", active_player);
 		match self.state {
 			BaseHandlerPhases::Announcement => {
-				Self::base_select_announcement(temp_pool, self.game_id)
-					.await
-					.unwrap();
+				self.base_select_announcement().await.unwrap();
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+					send_player_commongame(self.game.clone(), player).await;
 				}
-				trace!("Base select announcement waiting");
-				wait_for_game_ready(temp_pool, 1).await;
+				self.game.read().await.wait_for_all_players(&self.players).await;
 				trace!("Base select announcement game ready");
-				AvailableAreas::set_available(
-					temp_pool,
-					self.game_id,
-					AvailableAreas::all_counties(),
-				)
-				.await
-				.unwrap();
+				self.game.write().await.state.available_areas = Some(AvailableAreas::all_counties());
 			}
 			BaseHandlerPhases::StartSelection => {
-				Self::player_base_select_backend(temp_pool, self.game_id, active_player.rel_id)
-					.await
-					.unwrap();
+				self.player_base_select_backend(active_player.rel_id).await;
+				let areas = self.game.read().await.state.areas_info.clone();
+				let available = AvailableAreas::get_limited_available(&areas, active_player.rel_id);
+				self.game.write().await.state.available_areas = available.clone();
 				if active_player.is_player() {
-					let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
 					Cmd::set_player_cmd(
-						temp_pool,
-						active_player.id,
-						Cmd::select_command(available, 90),
+						self.game.clone(),
+						&active_player,
+						Some(Cmd::select_command(available, 90)),
 					)
-					.await
-					.unwrap();
+					.await;
 				}
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+					send_player_commongame(self.game.clone(), player).await;
 				}
 				trace!("Send select cmd waiting");
-				wait_for_game_ready(temp_pool, 1).await;
+				self.game.read().await.wait_for_all_players(&self.players).await;
 				trace!("Send select cmd game ready");
 			}
 			BaseHandlerPhases::SelectionResponse => {
 				if !active_player.is_player() {
-					let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
-						.await
-						.unwrap();
-
+					let areas = self.game.read().await.state.areas_info.clone();
+					trace!("areas: {:?}", areas);
+					let available =
+						AvailableAreas::get_limited_available(&areas, active_player.rel_id);
+					self.game.write().await.state.available_areas = available.clone();
 					let mut rng = StdRng::from_entropy();
-					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-					BaseHandler::new_base_selected(
-						temp_pool,
-						self.game_id,
-						random_area as u8,
-						active_player.rel_id,
-					)
-					.await
-					.unwrap();
-				} else {
-					player_timeout_timer(temp_pool, active_player.id, Duration::from_secs(60))
-						.await;
-					Cmd::clear_cmd(temp_pool, active_player.id).await.unwrap();
-					match User::get_server_command(temp_pool, active_player.id)
-						.await
+					let random_area = available
 						.unwrap()
-					{
+						.areas
+						.into_iter()
+						.choose(&mut rng)
+						.unwrap();
+					self.new_base_selected(random_area as u8, active_player.rel_id)
+						.await;
+				} else {
+					self.game.write().await.cmd = None;
+					let command = self.game.recv_command_channel(&active_player).await;
+					match command.unwrap() {
 						ServerCommand::SelectArea(val) => {
-							BaseHandler::new_base_selected(
-								temp_pool,
-								self.game_id,
-								val,
-								active_player.rel_id,
-							)
-							.await
-							.unwrap();
+							self.new_base_selected(val, active_player.rel_id).await;
 						}
 						_ => {
 							warn!("Invalid command");
 						}
 					}
 				}
-				BaseHandler::base_selected_stage(temp_pool, self.game_id)
-					.await
-					.unwrap();
+				self.base_selected_stage().await;
 
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+					send_player_commongame(self.game.clone(), player).await;
 				}
-				trace!("Common game ready waiting");
-				wait_for_game_ready(temp_pool, 1).await;
-				trace!("Common game ready");
+				self.game.read().await.wait_for_all_players(&self.players).await;
 			}
 		}
 	}
 
-	pub async fn base_selected_stage(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<u8, anyhow::Error> {
-		let res: u8 = GameState::set_gamestate(
-			temp_pool,
-			game_id,
-			GameState {
-				state: 1,
-				round: 0,
-				phase: 3,
-			},
-		)
-		.await?;
-		Ok(res)
+	pub async fn base_selected_stage(&self) {
+		self.game.write().await.state.game_state = GameState {
+			state: 1,
+			round: 0,
+			phase: 3,
+		};
 	}
 
-	pub async fn new_base_selected(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		selected_area: u8,
-		rel_id: u8,
-	) -> Result<u8, anyhow::Error> {
-		AvailableAreas::pop_county(temp_pool, game_id, County::try_from(selected_area)?).await?;
+	pub async fn new_base_selected(&self, selected_area: u8, rel_id: u8) {
+		AvailableAreas::pop_county(self.game.clone(), County::try_from(selected_area).unwrap())
+			.await;
 
 		Bases::add_base(
-			temp_pool,
-			game_id,
-			PlayerNames::try_from(rel_id)?,
+			self.game.clone(),
+			PlayerNames::try_from(rel_id).unwrap(),
 			Base::new(selected_area),
 		)
-		.await?;
+		.await
+		.unwrap();
 
-		Area::base_selected(temp_pool, game_id, rel_id, County::try_from(selected_area)?).await?;
-
-		let res = TriviadorState::set_field(
-			temp_pool,
-			game_id,
-			"selection",
-			&Bases::serialize_full(&Bases::get_redis(temp_pool, game_id).await?)?,
+		Area::base_selected(
+			self.game.clone(),
+			rel_id,
+			County::try_from(selected_area).unwrap(),
 		)
-		.await?;
-		TriviadorState::modify_player_score(temp_pool, game_id, rel_id - 1, 1000).await?;
-		Ok(res)
+		.await
+		.unwrap();
+
+		// todo what does this do
+		// game.read().unwrap().state.selection = game.read().unwrap().state.base_info.clone();
+
+		TriviadorState::modify_player_score(self.game.clone(), rel_id - 1, 1000)
+			.await
+			.unwrap();
 	}
 
-	async fn base_select_announcement(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<(), anyhow::Error> {
-		let _: u8 = GameState::set_gamestate(
-			temp_pool,
-			game_id,
-			GameState {
-				state: 1,
-				round: 0,
-				phase: 0,
-			},
-		)
-		.await?;
+	async fn base_select_announcement(&self) -> Result<(), anyhow::Error> {
+		self.game.write().await.state.game_state = GameState {
+			state: 1,
+			round: 0,
+			phase: 0,
+		};
 		Ok(())
 	}
 
-	async fn player_base_select_backend(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		game_player_id: u8,
-	) -> Result<(), anyhow::Error> {
-		let mut res: u8 = GameState::set_phase(temp_pool, game_id, 1).await?;
-
-		res += RoundInfo::set_roundinfo(
-			temp_pool,
-			game_id,
-			RoundInfo {
-				mini_phase_num: game_player_id,
-				rel_player_id: game_player_id,
-				attacked_player: None,
-			},
-		)
-		.await?;
-
-		Ok(())
+	async fn player_base_select_backend(&self, game_player_id: u8) {
+		self.game.write().await.state.game_state.phase = 1;
+		self.game.write().await.state.round_info = RoundInfo {
+			mini_phase_num: game_player_id,
+			rel_player_id: game_player_id,
+			attacked_player: None,
+		};
 	}
 }

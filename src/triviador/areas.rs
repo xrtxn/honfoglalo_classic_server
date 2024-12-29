@@ -1,12 +1,10 @@
 use std::collections::HashMap;
 
 use anyhow::bail;
-use fred::clients::RedisPool;
-use fred::error::RedisError;
-use fred::prelude::*;
 use serde::{Serialize, Serializer};
 use tracing::warn;
 
+use super::game::{SharedTrivGame, TriviadorGame};
 use crate::triviador::county::County;
 use crate::utils::split_string_n;
 
@@ -28,7 +26,20 @@ pub struct Area {
 
 impl Area {
 	pub fn new() -> HashMap<County, Area> {
-		HashMap::new()
+		let mut areas = HashMap::new();
+		for i in 1..=19 {
+			if let Ok(county) = County::try_from(i) {
+				areas.insert(
+					county,
+					Area {
+						owner: 0,
+						is_fortress: false,
+						value: AreaValue::Unoccupied,
+					},
+				);
+			}
+		}
+		areas
 	}
 
 	pub fn serialize_to_hex(&self) -> String {
@@ -70,17 +81,6 @@ impl Area {
 		Ok(rest)
 	}
 
-	pub async fn get_redis(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<HashMap<County, Area>, anyhow::Error> {
-		let res: String = temp_pool
-			.hget(format!("games:{}:triviador_state", game_id), "area_num")
-			.await?;
-		let rest = Self::deserialize_full(res)?;
-		Ok(rest)
-	}
-
 	pub fn serialize_full(set_counties: &HashMap<County, Area>) -> Result<String, anyhow::Error> {
 		// later this may not be 38 for different countries
 		let mut serialized = String::with_capacity(38);
@@ -100,38 +100,17 @@ impl Area {
 		Ok(serialized)
 	}
 
-	pub async fn set_redis(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		serialized: String,
-	) -> Result<u8, RedisError> {
-		{
-			let res: u8 = temp_pool
-				.hset(
-					format!("games:{}:triviador_state", game_id),
-					[("area_num", serialized)],
-				)
-				.await?;
-			Ok(res)
-		}
-	}
-
 	pub async fn modify_area(
-		temp_pool: &RedisPool,
-		game_id: u32,
+		game: SharedTrivGame,
 		values: (County, Area),
 	) -> Result<Option<Area>, anyhow::Error> {
-		{
-			let mut full = Self::get_redis(temp_pool, game_id).await?;
-			let replaced = full.insert(values.0, values.1);
-			Area::set_redis(temp_pool, game_id, Area::serialize_full(&full)?).await?;
-			Ok(replaced)
-		}
+		game.write().await.state.areas_info.insert(values.0, values.1);
+		// todo check this out
+		Ok(None)
 	}
 
 	pub async fn base_selected(
-		temp_pool: &RedisPool,
-		game_id: u32,
+		game: SharedTrivGame,
 		game_player_id: u8,
 		county: County,
 	) -> Result<(), anyhow::Error> {
@@ -140,23 +119,22 @@ impl Area {
 			is_fortress: false,
 			value: AreaValue::_1000,
 		};
-		Self::modify_area(temp_pool, game_id, (county, base)).await?;
+		Self::modify_area(game, (county, base)).await?;
 		Ok(())
 	}
 
 	pub async fn area_occupied(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		game_player_id: u8,
+		game: SharedTrivGame,
+		rel_id: u8,
 		county: Option<County>,
 	) -> Result<(), anyhow::Error> {
 		if let Some(county) = county {
 			let base = Self {
-				owner: game_player_id,
+				owner: rel_id,
 				is_fortress: false,
 				value: AreaValue::_200,
 			};
-			Self::modify_area(temp_pool, game_id, (county, base)).await?;
+			Self::modify_area(game, (county, base)).await?;
 		} else {
 			warn!("Trying to occupy None county!")
 		}

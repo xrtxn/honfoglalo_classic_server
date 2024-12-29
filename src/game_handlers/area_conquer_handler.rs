@@ -1,22 +1,20 @@
-use std::time::Duration;
-
-use fred::clients::RedisPool;
-use fred::prelude::KeysInterface;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
 
+use crate::app::{ServerCommandChannel, XmlPlayerChannel};
 use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType};
 use crate::game_handlers::s_game::SGamePlayer;
-use crate::game_handlers::{player_timeout_timer, send_player_commongame, wait_for_game_ready};
+use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::cmd::Cmd;
 use crate::triviador::county::County;
+use crate::triviador::game::{SharedTrivGame, TriviadorGame};
 use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
-use crate::users::{ServerCommand, User};
+use crate::users::ServerCommand;
 
 #[derive(PartialEq, Clone, Debug)]
 enum AreaConquerHandlerPhases {
@@ -65,17 +63,17 @@ impl AreaConquerHandlerPhases {
 }
 
 pub(crate) struct AreaConquerHandler {
+	game: SharedTrivGame,
 	state: AreaConquerHandlerPhases,
 	players: Vec<SGamePlayer>,
-	game_id: u32,
 }
 
 impl AreaConquerHandler {
-	pub(crate) fn new(players: Vec<SGamePlayer>, game_id: u32) -> AreaConquerHandler {
+	pub(crate) fn new(game: SharedTrivGame, players: Vec<SGamePlayer>) -> AreaConquerHandler {
 		AreaConquerHandler {
+			game,
 			state: AreaConquerHandlerPhases::Setup,
 			players,
-			game_id,
 		}
 	}
 
@@ -91,198 +89,152 @@ impl AreaConquerHandler {
 		self.state = AreaConquerHandlerPhases::AskDesiredArea;
 	}
 
-	pub(crate) async fn command(
-		&mut self,
-		temp_pool: &RedisPool,
-		active_player: Option<SGamePlayer>,
-	) {
+	pub(crate) async fn command(&mut self) {
 		match self.state {
 			AreaConquerHandlerPhases::Setup => {
-				Self::area_select_setup(temp_pool, self.game_id)
-					.await
-					.unwrap();
+				self.area_select_setup().await.unwrap();
 			}
 			AreaConquerHandlerPhases::Announcement => {
-				GameState::set_phase(temp_pool, self.game_id, 0)
-					.await
-					.unwrap();
+				self.game.write().await.state.game_state.phase = 0;
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+					send_player_commongame(self.game.clone(), player).await;
 				}
 				trace!("Area select announcement waiting");
-				wait_for_game_ready(temp_pool, 1).await;
+				self.game
+					.read()
+					.await
+					.wait_for_all_players(&self.players)
+					.await;
 				trace!("Area select announcement game ready");
 			}
 			AreaConquerHandlerPhases::AskDesiredArea => {
-				let active_player = active_player.unwrap();
-				temp_pool
-					.set::<String, _, _>(
-						format!("games:{}:send_player", self.game_id),
-						active_player.rel_id,
-						None,
-						None,
-						false,
-					)
-					.await
-					.unwrap();
-				Self::player_area_select_backend(temp_pool, self.game_id, active_player.rel_id)
+				let active_player = self.game.read().await.state.active_player.clone().unwrap();
+				let areas = self.game.read().await.state.areas_info.clone();
+				trace!("areas: {:?}", areas);
+				let available = AvailableAreas::get_limited_available(&areas, active_player.rel_id);
+				self.game.write().await.state.available_areas = available.clone();
+				self.player_area_select_backend(active_player.rel_id)
 					.await
 					.unwrap();
 				if active_player.is_player() {
-					let available = AvailableAreas::get_limited_available(
-						temp_pool,
-						self.game_id,
-						active_player.rel_id,
+					Cmd::set_player_cmd(
+						self.game.clone(),
+						&active_player,
+						Some(Cmd::select_command(available, 90)),
 					)
 					.await;
-					Cmd::set_player_cmd(
-						temp_pool,
-						active_player.id,
-						Cmd::select_command(available, 90),
-					)
-					.await
-					.unwrap();
 				}
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+					send_player_commongame(self.game.clone(), player).await;
 				}
 				trace!("Send select cmd waiting");
-				wait_for_game_ready(temp_pool, 1).await;
+				self.game
+					.read()
+					.await
+					.wait_for_all_players(&self.players)
+					.await;
 				trace!("Send select cmd game ready");
 			}
 			AreaConquerHandlerPhases::DesiredAreaResponse => {
-				let active_player = active_player.unwrap();
+				let active_player = self.game.read().await.state.active_player.clone().unwrap();
 				if active_player.is_player() {
-					player_timeout_timer(temp_pool, active_player.id, Duration::from_secs(60))
-						.await;
-					Cmd::clear_cmd(temp_pool, active_player.id).await.unwrap();
-
-					match User::get_server_command(temp_pool, active_player.id)
-						.await
-						.unwrap()
-					{
+					trace!("game acquired");
+					// FIXME deadlock
+					trace!("Waiting for command channel");
+					match self.game.recv_command_channel(&active_player).await.unwrap() {
 						ServerCommand::SelectArea(val) => {
-							AreaConquerHandler::new_area_selected(
-								temp_pool,
-								self.game_id,
-								val,
-								active_player.rel_id,
-							)
-							.await
-							.unwrap();
+							self.new_area_selected(val, active_player.rel_id)
+								.await
+								.unwrap();
 						}
 						_ => {
 							warn!("Invalid command");
 						}
 					}
+					trace!("command received");
 				} else {
-					let available_areas = AvailableAreas::get_limited_available(
-						temp_pool,
-						self.game_id,
-						active_player.rel_id,
-					)
-					.await
-					.unwrap();
+					let areas = self.game.read().await.state.areas_info.clone();
+					let available_areas =
+						AvailableAreas::get_limited_available(&areas, active_player.rel_id)
+							.unwrap();
 
 					let mut rng = StdRng::from_entropy();
 					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-					AreaConquerHandler::new_area_selected(
-						temp_pool,
-						self.game_id,
-						random_area as u8,
-						active_player.rel_id,
-					)
-					.await
-					.unwrap();
+					self.new_area_selected(random_area as u8, active_player.rel_id)
+						.await
+						.unwrap();
 				}
-				AreaConquerHandler::area_selected_stage(temp_pool, self.game_id)
-					.await
-					.unwrap();
+				self.area_selected_stage().await;
 
 				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
+					send_player_commongame(self.game.clone(), player).await;
 				}
 				trace!("Common game ready waiting");
-				wait_for_game_ready(temp_pool, 1).await;
+				self.game
+					.read()
+					.await
+					.wait_for_all_players(&self.players)
+					.await;
 				trace!("Common game ready");
 			}
 			AreaConquerHandlerPhases::Question => {
 				let mut qh = QuestionHandler::new(
+					self.game.clone(),
 					QuestionHandlerType::AreaConquer,
 					self.players.clone(),
-					self.game_id,
 				)
 				.await;
-				qh.handle_all(temp_pool).await;
+				qh.handle_all().await;
 			}
 			AreaConquerHandlerPhases::SendUpdatedState => {
 				// it actually gets sent in the question handler
-				wait_for_game_ready(temp_pool, 1).await;
+				self.game
+					.read()
+					.await
+					.wait_for_all_players(&self.players)
+					.await;
 			}
 		}
 	}
 
-	async fn area_select_setup(temp_pool: &RedisPool, game_id: u32) -> Result<(), anyhow::Error> {
-		let _: u8 = GameState::set_gamestate(
-			temp_pool,
-			game_id,
-			GameState {
-				state: 2,
-				round: 1,
-				phase: 0,
-			},
-		)
-		.await?;
+	async fn area_select_setup(&self) -> Result<(), anyhow::Error> {
+		self.game.write().await.state.game_state = GameState {
+			state: 2,
+			round: 1,
+			phase: 0,
+		};
 		Ok(())
 	}
 
-	async fn player_area_select_backend(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		game_player_id: u8,
-	) -> Result<(), anyhow::Error> {
-		// sets phase to 1
-		let mut res = GameState::set_phase(temp_pool, game_id, 1).await?;
-		let mut ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
-		ri.mini_phase_num += 1;
+	async fn player_area_select_backend(&self, game_player_id: u8) -> Result<(), anyhow::Error> {
+		let mut game = self.game.write().await;
+		game.state.game_state.phase = 1;
 
-		res += RoundInfo::set_roundinfo(
-			temp_pool,
-			game_id,
-			RoundInfo {
-				mini_phase_num: ri.mini_phase_num,
-				rel_player_id: game_player_id,
-				attacked_player: None,
-			},
-		)
-		.await?;
+		game.state.round_info = RoundInfo {
+			mini_phase_num: game.state.round_info.mini_phase_num + 1,
+			rel_player_id: game_player_id,
+			attacked_player: None,
+		};
 		Ok(())
 	}
 
-	pub async fn area_selected_stage(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<u8, anyhow::Error> {
+	pub async fn area_selected_stage(&self) {
 		// sets phase to 3
-		let res: u8 = GameState::incr_phase(temp_pool, game_id, 2).await?;
-		Ok(res)
+		self.game.write().await.state.game_state.phase = 3;
 	}
 
 	pub async fn new_area_selected(
-		temp_pool: &RedisPool,
-		game_id: u32,
+		&self,
 		selected_area: u8,
 		game_player_id: u8,
-	) -> Result<u8, anyhow::Error> {
-		AvailableAreas::pop_county(temp_pool, game_id, County::try_from(selected_area)?).await?;
+	) -> Result<(), anyhow::Error> {
+		AvailableAreas::pop_county(self.game.clone(), County::try_from(selected_area)?).await;
 
-		let mut prev = Selection::get_redis(temp_pool, game_id).await?;
-		prev.add_selection(
+		// let mut prev = Selection::get_redis(temp_pool, game_id).await?;
+		self.game.write().await.state.selection.add_selection(
 			PlayerNames::try_from(game_player_id)?,
 			County::try_from(selected_area)?,
 		);
-		let res = Selection::set_redis(temp_pool, game_id, prev).await?;
-
-		Ok(res)
+		Ok(())
 	}
 }

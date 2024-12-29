@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use fred::prelude::*;
 use serde::{Serialize, Serializer};
 
 use crate::triviador::county::County;
@@ -19,37 +18,6 @@ impl Selection {
 		}
 	}
 
-	/// clears the redis db
-	pub(crate) async fn clear(temp_pool: &RedisPool, game_id: u32) -> Result<(), anyhow::Error> {
-		Self::set_redis(temp_pool, game_id, Selection::new()).await?;
-		Ok(())
-	}
-
-	pub async fn get_redis(temp_pool: &RedisPool, game_id: u32) -> Result<Self, anyhow::Error> {
-		let res: String = temp_pool
-			.get(format!("games:{}:triviador_state:selection", game_id))
-			.await?;
-		let rest = Self::deserialize_full(&res)?;
-		Ok(rest)
-	}
-
-	pub async fn set_redis(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		selection: Selection,
-	) -> Result<u8, anyhow::Error> {
-		let _: String = temp_pool
-			.set(
-				format!("games:{}:triviador_state:selection", game_id),
-				Self::serialize_full(&selection)?,
-				None,
-				None,
-				false,
-			)
-			.await?;
-		Ok(1)
-	}
-
 	pub fn add_selection(&mut self, player: PlayerNames, county: County) {
 		self.counties.insert(player, county);
 	}
@@ -57,7 +25,7 @@ impl Selection {
 	pub fn serialize_full(&self) -> Result<String, anyhow::Error> {
 		let mut serialized = String::with_capacity(6);
 		// start from 1 because we don't want the 0 value County
-		for i in 1..4 {
+		for i in 1..=3 {
 			let selected_county = self.counties.get(&PlayerNames::try_from(i)?);
 			match selected_county {
 				None => {
@@ -122,6 +90,16 @@ mod tests {
 
 	#[test]
 	fn test_deserialize() {
+		let mut selection = Selection::new();
+		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
+		selection.add_selection(PlayerNames::Player2, County::Veszprem);
+		selection.add_selection(PlayerNames::Player3, County::Csongrad);
+		let serialized = Selection::deserialize_full("090E0B").unwrap();
+		assert_eq!(serialized, selection);
+	}
+
+	#[test]
+	fn test_bases() {
 		let mut selection = Selection::new();
 		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
 		selection.add_selection(PlayerNames::Player2, County::Veszprem);

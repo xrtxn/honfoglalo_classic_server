@@ -1,13 +1,9 @@
-use std::time::Duration;
+use s_game::SGamePlayer;
+use tracing::error;
 
-use fred::clients::RedisPool;
-use fred::prelude::*;
-use tokio::select;
-use tracing::{trace, warn};
-
-use crate::triviador::cmd::Cmd;
-use crate::triviador::game::TriviadorGame;
-use crate::users::User;
+use crate::app::{ServerCommandChannel, XmlPlayerChannel};
+use crate::triviador::game::{SharedTrivGame, TriviadorGame};
+use crate::users::ServerCommand;
 
 pub(super) mod area_conquer_handler;
 pub(super) mod base_handler;
@@ -24,70 +20,28 @@ pub(crate) enum PlayerType {
 	Bot,
 }
 
-pub async fn wait_for_game_ready(temp_pool: &RedisPool, player_id: i32) {
-	// todo improve this, add timeout
-	// todo check if player is already ready?
-	let ready_sub = Builder::default_centralized().build().unwrap();
-	ready_sub.init().await.unwrap();
-	ready_sub
-		.psubscribe(format!("__keyspace*__:users:{}:is_listen_ready", player_id))
-		.await
-		.unwrap();
-	let mut sub = ready_sub.keyspace_event_rx();
-	let mut is_ready = false;
-	while !is_ready {
-		sub.recv().await.unwrap();
-		if !User::is_listen_ready(&temp_pool, player_id).await.unwrap() {
-			trace!("User is not ready");
-			continue;
+pub(crate) async fn wait_for_game_ready(receiver: &TriviadorGame, player: &SGamePlayer) {
+	if let Some(player_utils) = receiver.utils.get(&player) {
+		if let Some(channels) = &player_utils.channels {
+			// let command_channel = channels.command_channel.clone();
+			match channels.command_channel.recv_message().await {
+				Ok(ServerCommand::Ready) => {}
+				Ok(_) => error!("Incorrect server command when waiting for game ready"),
+				Err(e) => error!("Recv error when waiting for game ready: {}", e),
+			}
+		} else {
+			error!("Channels not found for player");
 		}
-		is_ready = true;
-	}
-}
-
-pub(crate) async fn send_player_commongame(
-	temp_pool: &RedisPool,
-	game_id: u32,
-	player_id: i32,
-	rel_player_id: u8,
-) {
-	let mut resp = TriviadorGame::get_triviador(temp_pool, game_id)
-		.await
-		.unwrap();
-	// todo remove rel_player_id
-	resp.cmd = Cmd::get_player_cmd(temp_pool, player_id, rel_player_id, game_id)
-		.await
-		.unwrap();
-	let xml = quick_xml::se::to_string(&resp.clone()).unwrap();
-	User::push_listen_queue(temp_pool, player_id, xml.as_str())
-		.await
-		.unwrap();
-}
-
-pub(crate) async fn player_timeout_timer(
-	temp_pool: &RedisPool,
-	active_player_id: i32,
-	timeout: Duration,
-) -> bool {
-	if User::get_server_command(temp_pool, active_player_id)
-		.await
-		.is_ok()
-	{
-		warn!("Already received server command!!!");
-		true
 	} else {
-		select! {
-			_ = {
-				trace!("Waiting for server command for player {}", active_player_id);
-				User::subscribe_server_command(active_player_id)
-			} => {
-				trace!("Server command received for player {}", active_player_id);
-				true
-			}
-			_ = tokio::time::sleep(timeout) => {
-				warn!("Timeout reached");
-				false
-			}
-		}
+		error!("Player utils not found");
 	}
+}
+
+pub(crate) async fn send_player_commongame(game: SharedTrivGame, player: &SGamePlayer) {
+	// todo may be bad
+	let mut commanded = game.read().await.clone();
+	commanded.cmd = commanded.utils.get(player).unwrap().cmd.clone();
+	let xml = quick_xml::se::to_string(&commanded).unwrap();
+	game.send_xml_channel(player, xml).await.unwrap();
+	game.write().await.utils.get_mut(player).map(|x| x.cmd = None);
 }
