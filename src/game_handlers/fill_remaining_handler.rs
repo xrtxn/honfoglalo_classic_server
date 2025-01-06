@@ -63,17 +63,14 @@ impl FillRemainingHandlerPhases {
 }
 
 pub(crate) struct FillRemainingHandler {
-    game: SharedTrivGame,
+	game: SharedTrivGame,
 	state: FillRemainingHandlerPhases,
 	players: Vec<SGamePlayer>,
 	winner: Option<SGamePlayer>,
 }
 
 impl FillRemainingHandler {
-	pub(crate) fn new(
-		game: SharedTrivGame,
-		players: Vec<SGamePlayer>,
-	) -> FillRemainingHandler {
+	pub(crate) fn new(game: SharedTrivGame, players: Vec<SGamePlayer>) -> FillRemainingHandler {
 		FillRemainingHandler {
 			game,
 			state: FillRemainingHandlerPhases::Setup,
@@ -90,195 +87,148 @@ impl FillRemainingHandler {
 		self.state = FillRemainingHandlerPhases::Announcement;
 	}
 
-	pub(crate) async fn setup(&mut self, temp_pool: &RedisPool) {
-		Self::fill_setup(temp_pool).await.unwrap();
+	pub(crate) async fn setup(&self) {
+		self.fill_setup().await;
 	}
 
-	pub(crate) async fn announcement(&mut self, temp_pool: &RedisPool) {
-		// GameState::set_phase(temp_pool, self.game_id, 0)
-		// 	.await
-		// 	.unwrap();
-		// for player in self.players.iter().filter(|x| x.is_player()) {
-		// 	send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
-		// }
-		// trace!("Fill remaining announcement waiting");
-		// wait_for_game_ready(temp_pool, 1).await;
-		// trace!("Fill remaining announcement game ready");
+	pub(crate) async fn announcement(&mut self) {
+		self.game.write().await.state.game_state.phase = 0;
+		self.game.send_to_all_players(&self.players).await;
+		trace!("Fill remaining announcement waiting");
+		self.game.wait_for_all_players(&self.players).await;
+		trace!("Fill remaining announcement game ready");
 	}
 
-	pub(crate) async fn tip_question(&mut self, temp_pool: &RedisPool) {
-		// let mut th =
-		// 	TipHandler::new(TipHandlerType::Fill, self.players.clone(), self.game_id).await;
-		// self.winner = Some(th.handle_all(temp_pool).await);
+	pub(crate) async fn tip_question(&mut self) {
+		let mut th = TipHandler::new(
+			self.game.arc_clone(),
+			TipHandlerType::Fill,
+			self.players.clone(),
+		)
+		.await;
+		self.winner = Some(th.handle_all().await);
+		self.game
+			.write()
+			.await
+			.add_fill_round_winner(self.winner.as_ref().unwrap().rel_id)
+			.await;
 	}
 
-	pub(crate) async fn ask_desired_area(&mut self, temp_pool: &RedisPool) {
-		// let active_player = self.winner.clone().unwrap();
-		// temp_pool
-		// 	.set::<String, _, _>(
-		// 		format!("games:{}:send_player", self.game_id),
-		// 		active_player.rel_id,
-		// 		None,
-		// 		None,
-		// 		false,
-		// 	)
-		// 	.await
-		// 	.unwrap();
-		// Self::fill_area_select_backend(temp_pool, self.game_id, active_player.rel_id)
-		// 	.await
-		// 	.unwrap();
-		// if active_player.is_player() {
-		// 	let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
-		// 	Cmd::set_player_cmd(
-		// 		temp_pool,
-		// 		active_player.id,
-		// 		Cmd::select_command(available, 90),
-		// 	)
-		// 	.await
-		// 	.unwrap();
-		// }
-		// for player in self.players.iter().filter(|x| x.is_player()) {
-		// 	send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
-		// }
-		// trace!("Send select cmd waiting");
-		// wait_for_game_ready(temp_pool, 1).await;
-		// trace!("Send select cmd game ready");
+	pub(crate) async fn ask_desired_area(&mut self) {
+		let active_player = self.winner.clone().unwrap();
+		self.game.write().await.state.active_player = Some(active_player.clone());
+		self.fill_area_select_backend(active_player.rel_id)
+			.await
+			.unwrap();
+		if active_player.is_player() {
+			// let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
+			let available = self.game.read().await.state.available_areas.clone();
+			Cmd::set_player_cmd(
+				self.game.arc_clone(),
+				&active_player,
+				Some(Cmd::select_command(available, 90)),
+			)
+			.await;
+		}
+		self.game.send_to_all_players(&self.players).await;
+		self.game.wait_for_all_players(&self.players).await;
 	}
 
-	pub(crate) async fn desired_area_response(&mut self, temp_pool: &RedisPool) {
-		// GameState::set_phase(temp_pool, self.game_id, 6)
-		// 	.await
-		// 	.unwrap();
-		// let active_player = self.winner.clone().unwrap();
-		// if active_player.is_player() {
-		// 	player_timeout_timer(temp_pool, active_player.id, Duration::from_secs(60)).await;
-		// 	Cmd::clear_cmd(temp_pool, active_player.id).await.unwrap();
+	pub(crate) async fn desired_area_response(&mut self) {
+		self.game.write().await.state.game_state.phase = 6;
+		let active_player = self.winner.clone().unwrap();
+		self.game.write().await.state.active_player = Some(active_player.clone());
+		if active_player.is_player() {
+			match self
+				.game
+				.recv_command_channel(&active_player)
+				.await
+				.unwrap()
+			{
+				ServerCommand::SelectArea(val) => {
+					self.new_area_selected(val, active_player.rel_id)
+						.await
+						.unwrap();
+				}
+				_ => {
+					warn!("Invalid command");
+				}
+			}
+		} else {
+			let areas = self.game.read().await.state.areas_info.clone();
+			let selection = self.game.read().await.state.selection.clone();
+			let available_areas =
+				AvailableAreas::get_limited_available(&areas, &selection, active_player.rel_id);
 
-		// 	match User::get_server_command(temp_pool, active_player.id)
-		// 		.await
-		// 		.unwrap()
-		// 	{
-		// 		ServerCommand::SelectArea(val) => {
-		// 			Self::new_area_selected(temp_pool, self.game_id, val, active_player.rel_id)
-		// 				.await
-		// 				.unwrap();
-		// 		}
-		// 		_ => {
-		// 			warn!("Invalid command");
-		// 		}
-		// 	}
-		// } else {
-		// 	let available_areas = AvailableAreas::get_available(temp_pool, self.game_id)
-		// 		.await
-		// 		.unwrap();
-
-		// 	let mut rng = StdRng::from_entropy();
-		// 	let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-		// 	Self::new_area_selected(
-		// 		temp_pool,
-		// 		self.game_id,
-		// 		random_area as u8,
-		// 		active_player.rel_id,
-		// 	)
-		// 	.await
-		// 	.unwrap();
-		// }
-		// for player in self.players.iter().filter(|x| x.is_player()) {
-		// 	send_player_commongame(temp_pool, self.game_id, player.id, player.rel_id).await;
-		// }
-		// RoundInfo::incr_mini_phase(temp_pool, self.game_id, 1)
-		// 	.await
-		// 	.unwrap();
+			let mut rng = StdRng::from_entropy();
+			let random_area = available_areas
+				.get_counties()
+				.into_iter()
+				.choose(&mut rng)
+				.unwrap();
+			self.new_area_selected(*random_area as u8, active_player.rel_id)
+				.await
+				.unwrap();
+		}
+		self.game.send_to_all_players(&self.players).await;
+		self.game.wait_for_all_players(&self.players).await;
+		self.game.write().await.state.round_info.mini_phase_num += 1;
 	}
 
-	async fn fill_setup(temp_pool: &RedisPool) -> Result<(), anyhow::Error> {
-		// let _: u8 = GameState::set_gamestate(
-		// 	temp_pool,
-		// 	game_id,
-		// 	GameState {
-		// 		state: 3,
-		// 		round: 1,
-		// 		phase: 0,
-		// 	},
-		// )
-		// .await?;
+	async fn fill_setup(&self) {
+		let mut write_game = self.game.write().await;
+		write_game.state.game_state = GameState {
+			state: 3,
+			round: 1,
+			phase: 0,
+		};
+		write_game.state.round_info.mini_phase_num = 0;
+	}
+
+	async fn fill_area_select_backend(&self, winner_rel_id: u8) -> Result<(), anyhow::Error> {
+		let mut game = self.game.write().await;
+		game.state.game_state.phase = 4;
+
+		let ri = game.state.round_info.clone();
+
+		game.state.round_info = RoundInfo {
+			mini_phase_num: ri.mini_phase_num,
+			rel_player_id: winner_rel_id,
+			attacked_player: None,
+		};
+
 		Ok(())
 	}
 
-	async fn fill_area_select_backend(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		winner_rel_id: u8,
-	) -> Result<(), anyhow::Error> {
-		// GameState::set_phase(temp_pool, game_id, 4).await?;
-
-		// let ri = RoundInfo::get_roundinfo(temp_pool, game_id).await?;
-
-		// let _ = RoundInfo::set_roundinfo(
-		// 	temp_pool,
-		// 	game_id,
-		// 	RoundInfo {
-		// 		mini_phase_num: ri.mini_phase_num,
-		// 		rel_player_id: winner_rel_id,
-		// 		attacked_player: None,
-		// 	},
-		// )
-		// .await?;
-		Ok(())
-	}
-
-	pub async fn area_selected_stage(
-		temp_pool: &RedisPool,
-		game_id: u32,
-	) -> Result<u8, anyhow::Error> {
-		// // sets phase to 3
-		// let res: u8 = GameState::incr_phase(temp_pool, game_id, 2).await?;
-		Ok(todo!())
+	pub async fn area_selected_stage(&self) {
+		// sets phase to 3
+		self.game.write().await.state.game_state.phase += 2;
 	}
 
 	pub async fn new_area_selected(
-		temp_pool: &RedisPool,
-		game_id: u32,
+		&self,
 		selected_area: u8,
 		game_player_id: u8,
-	) -> Result<u8, anyhow::Error> {
-		// AvailableAreas::pop_county(temp_pool, game_id, County::try_from(selected_area)?).await?;
-		// Area::area_occupied(
-		// 	temp_pool,
-		// 	game_id,
-		// 	game_player_id,
-		// 	County::try_from(selected_area).ok(),
-		// )
-		// .await?;
-
-		// let mut prev = Selection::get_redis(temp_pool, game_id).await?;
-		// prev.add_selection(
-		// 	PlayerNames::try_from(game_player_id)?,
-		// 	County::try_from(selected_area)?,
-		// );
-		// let res = Selection::set_redis(temp_pool, game_id, prev).await?;
-
-		Ok(todo!())
-	}
-
-	pub(crate) async fn incr_fill_round(
-		temp_pool: &RedisPool,
-		game_id: u32,
-		by: u8,
 	) -> Result<(), anyhow::Error> {
-		// let mut fill_round = TriviadorState::get_field(temp_pool, game_id, "fill_round")
-		// 	.await
-		// 	.unwrap_or_else(|_| "0".to_string())
-		// 	.parse::<u8>()
-		// 	.unwrap_or_else(|_| 0);
-		// fill_round += by;
-		// TriviadorState::set_field(
-		// 	temp_pool,
-		// 	game_id,
-		// 	"fill_round",
-		// 	fill_round.to_string().as_str(),
-		// )
-		// .await?;
+		// AvailableAreas::pop_county(self.game.arc_clone(),
+		// County::try_from(selected_area)?).await;
+		self.game
+			.write()
+			.await
+			.state
+			.available_areas
+			.pop_county(&County::try_from(selected_area)?);
+		Area::area_occupied(
+			self.game.arc_clone(),
+			game_player_id,
+			County::try_from(selected_area).ok(),
+		)
+		.await?;
+		self.game.write().await.state.selection.add_selection(
+			PlayerNames::try_from(game_player_id)?,
+			County::try_from(selected_area)?,
+		);
+
 		Ok(())
 	}
 }

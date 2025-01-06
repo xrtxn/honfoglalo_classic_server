@@ -1,5 +1,5 @@
-use rand::thread_rng;
 use rand::prelude::SliceRandom;
+use rand::thread_rng;
 use serde::{Serialize, Serializer};
 use tracing::error;
 
@@ -57,7 +57,7 @@ impl Serialize for WarOrder {
 	where
 		S: Serializer,
 	{
-		serializer.serialize_str(&Self::serialize(&self))
+		serializer.serialize_str(&Self::serialize(self))
 	}
 }
 

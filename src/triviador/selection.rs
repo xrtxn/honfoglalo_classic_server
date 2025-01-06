@@ -18,6 +18,10 @@ impl Selection {
 		}
 	}
 
+	pub(crate) fn clear(&mut self) {
+		self.counties.clear();
+	}
+
 	pub fn add_selection(&mut self, player: PlayerNames, county: County) {
 		self.counties.insert(player, county);
 	}

@@ -12,7 +12,6 @@ use http_body_util::BodyExt;
 use scc::HashMap;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
-use tracing::trace;
 
 use crate::channels::parse_xml_multiple;
 use crate::router::{client_castle, countries, friends, game, help, mobil};
@@ -143,7 +142,7 @@ impl App {
 		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
 		axum::serve(listener, merged.into_make_service())
 			.await
-			.map_err(|e| AppError::from(e))?;
+			.map_err(AppError::from)?;
 		Ok(())
 	}
 }
@@ -162,16 +161,15 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 		let mut lines: Vec<&str> = body.lines().collect();
 		println!("lines: {:?}", lines);
 		let xml_header_string = lines.remove(0);
-		let new_body = lines.get(0).unwrap().to_string();
+		let new_body = lines.first().unwrap().to_string();
 		let mut req = Request::from_parts(parts, Body::from(new_body));
 
-		let parsed_header = parse_xml_multiple(&xml_header_string).unwrap();
+		let parsed_header = parse_xml_multiple(xml_header_string).unwrap();
 		req.extensions_mut().insert(parsed_header);
 		req
 	};
 
-	let response = next.run(req).await;
-	response
+	next.run(req).await
 }
 
 #[derive(Debug)]

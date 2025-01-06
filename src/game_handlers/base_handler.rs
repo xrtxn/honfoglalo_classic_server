@@ -3,13 +3,12 @@ use rand::SeedableRng;
 use tracing::{trace, warn};
 
 use crate::game_handlers::s_game::SGamePlayer;
-use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::bases::{Base, Bases};
 use crate::triviador::cmd::Cmd;
 use crate::triviador::county::County;
-use crate::triviador::game::{SharedTrivGame, TriviadorGame};
+use crate::triviador::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
@@ -66,48 +65,48 @@ impl BaseHandler {
 		match self.state {
 			BaseHandlerPhases::Announcement => {
 				self.base_select_announcement().await.unwrap();
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(self.game.clone(), player).await;
-				}
-				self.game.read().await.wait_for_all_players(&self.players).await;
+				self.game.send_to_all_players(&self.players).await;
+				self.game.wait_for_all_players(&self.players).await;
 				trace!("Base select announcement game ready");
-				self.game.write().await.state.available_areas = Some(AvailableAreas::all_counties());
+				self.game.write().await.state.available_areas = AvailableAreas::all_counties();
 			}
 			BaseHandlerPhases::StartSelection => {
 				self.player_base_select_backend(active_player.rel_id).await;
 				let areas = self.game.read().await.state.areas_info.clone();
-				let available = AvailableAreas::get_limited_available(&areas, active_player.rel_id);
+				let selection = self.game.read().await.state.selection.clone();
+				let available =
+					AvailableAreas::get_limited_available(&areas, &selection, active_player.rel_id);
 				self.game.write().await.state.available_areas = available.clone();
 				if active_player.is_player() {
 					Cmd::set_player_cmd(
-						self.game.clone(),
+						self.game.arc_clone(),
 						&active_player,
 						Some(Cmd::select_command(available, 90)),
 					)
 					.await;
 				}
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(self.game.clone(), player).await;
-				}
+				self.game.send_to_all_players(&self.players).await;
 				trace!("Send select cmd waiting");
-				self.game.read().await.wait_for_all_players(&self.players).await;
+				self.game.wait_for_all_players(&self.players).await;
 				trace!("Send select cmd game ready");
 			}
 			BaseHandlerPhases::SelectionResponse => {
 				if !active_player.is_player() {
 					let areas = self.game.read().await.state.areas_info.clone();
-					trace!("areas: {:?}", areas);
-					let available =
-						AvailableAreas::get_limited_available(&areas, active_player.rel_id);
+					let selection = self.game.read().await.state.selection.clone();
+					let available = AvailableAreas::get_limited_available(
+						&areas,
+						&selection,
+						active_player.rel_id,
+					);
 					self.game.write().await.state.available_areas = available.clone();
 					let mut rng = StdRng::from_entropy();
 					let random_area = available
-						.unwrap()
-						.areas
+						.get_counties()
 						.into_iter()
 						.choose(&mut rng)
 						.unwrap();
-					self.new_base_selected(random_area as u8, active_player.rel_id)
+					self.new_base_selected(*random_area as u8, active_player.rel_id)
 						.await;
 				} else {
 					self.game.write().await.cmd = None;
@@ -122,11 +121,8 @@ impl BaseHandler {
 					}
 				}
 				self.base_selected_stage().await;
-
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(self.game.clone(), player).await;
-				}
-				self.game.read().await.wait_for_all_players(&self.players).await;
+				self.game.send_to_all_players(&self.players).await;
+				self.game.wait_for_all_players(&self.players).await;
 			}
 		}
 	}
@@ -140,11 +136,15 @@ impl BaseHandler {
 	}
 
 	pub async fn new_base_selected(&self, selected_area: u8, rel_id: u8) {
-		AvailableAreas::pop_county(self.game.clone(), County::try_from(selected_area).unwrap())
-			.await;
+		self.game
+			.write()
+			.await
+			.state
+			.available_areas
+			.pop_county(&County::try_from(selected_area).unwrap());
 
 		Bases::add_base(
-			self.game.clone(),
+			self.game.arc_clone(),
 			PlayerNames::try_from(rel_id).unwrap(),
 			Base::new(selected_area),
 		)
@@ -152,7 +152,7 @@ impl BaseHandler {
 		.unwrap();
 
 		Area::base_selected(
-			self.game.clone(),
+			self.game.arc_clone(),
 			rel_id,
 			County::try_from(selected_area).unwrap(),
 		)
@@ -162,7 +162,7 @@ impl BaseHandler {
 		// todo what does this do
 		// game.read().unwrap().state.selection = game.read().unwrap().state.base_info.clone();
 
-		TriviadorState::modify_player_score(self.game.clone(), rel_id - 1, 1000)
+		TriviadorState::modify_player_score(self.game.arc_clone(), rel_id - 1, 1000)
 			.await
 			.unwrap();
 	}

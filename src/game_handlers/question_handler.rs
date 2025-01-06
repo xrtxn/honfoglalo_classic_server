@@ -13,7 +13,7 @@ use crate::game_handlers::s_game::{get_player_by_rel_id, SGamePlayer};
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
-use crate::triviador::game::{SharedTrivGame, TriviadorGame};
+use crate::triviador::game::{self, SharedTrivGame, TriviadorGame};
 use crate::triviador::game_state::GameState;
 use crate::triviador::question::{
 	Question, QuestionAnswerResult, QuestionStageResponse, TipInfo, TipStageResponse,
@@ -108,126 +108,111 @@ impl QuestionHandler {
 	}
 
 	pub(crate) async fn command(&mut self) {
-		todo!();
-		// match self.state {
-		// 	QuestionHandlerPhases::SendQuestion => {
-		// 		match self.question_handler_type {
-		// 			QuestionHandlerType::AreaConquer => {
-		// 				game.read().unwrap().state.game_state.phase = 4;
-		// 			}
-		// 			QuestionHandlerType::Battle => {
-		// 				game.read().unwrap().state.game_state.phase = 4;
-		// 			}
-		// 		}
-		// 		let q = Question::emulate();
-		// 		let state = TriviadorState::get_triviador_state(game, self.game_id)
-		// 			.await
-		// 			.unwrap();
-		// 		User::push_listen_queue(
-		// 			game,
-		// 			self.players[0].id,
-		// 			quick_xml::se::to_string(&QuestionStageResponse::new_question(state, q))
-		// 				.unwrap()
-		// 				.as_str(),
-		// 		)
-		// 		.await
-		// 		.unwrap();
-		// 		wait_for_game_ready(game, 1).await;
-		// 	}
-		// 	QuestionHandlerPhases::GetQuestionResponse => {
-		// 		for player in self.players.iter().filter(|x| x.is_player()) {
-		// 			// todo handle no response
-		// 			User::subscribe_server_command(player.id).await;
-		// 			match User::get_server_command(game, player.id).await.unwrap() {
-		// 				ServerCommand::QuestionAnswer(ans) => {
-		// 					self.answer_result.set_player(player.rel_id, ans);
-		// 				}
-		// 				_ => {
-		// 					warn!("Invalid command");
-		// 				}
-		// 			}
-		// 		}
-		// 		for player in self.players.iter().filter(|x| !x.is_player()) {
-		// 			let mut rng = StdRng::from_entropy();
-		// 			let random_answer: u8 = rng.gen_range(1..=4);
-		// 			self.answer_result.set_player(player.rel_id, random_answer);
-		// 		}
-		// 	}
-		// 	QuestionHandlerPhases::SendCorrectAnswer => {
-		// 		info!("todo but not necessary");
-		// 		GameState::incr_phase(game, self.game_id, 1).await.unwrap();
-		// 	}
-		// 	QuestionHandlerPhases::SendPlayerAnswers => {
-		// 		self.answer_result.good = Some(1);
-		// 		match self.question_handler_type {
-		// 			QuestionHandlerType::AreaConquer => {
-		// 				GameState::incr_phase(game, self.game_id, 1).await.unwrap();
-		// 			}
-		// 			QuestionHandlerType::Battle => {
-		// 				GameState::incr_phase(game, self.game_id, 1).await.unwrap();
-		// 			}
-		// 		}
-		// 		let state = TriviadorState::get_triviador_state(game, self.game_id)
-		// 			.await
-		// 			.unwrap();
-		// 		for player in self.players.iter().filter(|x| x.is_player()) {
-		// 			User::push_listen_queue(
-		// 				game,
-		// 				player.id,
-		// 				quick_xml::se::to_string(&QuestionStageResponse::new_answer_result(
-		// 					state.clone(),
-		// 					self.answer_result.clone(),
-		// 				))
-		// 				.unwrap()
-		// 				.as_str(),
-		// 			)
-		// 			.await
-		// 			.unwrap();
-		// 		}
-		// 		wait_for_game_ready(game, 1).await;
-		// 	}
-		// 	QuestionHandlerPhases::SendUpdatedState => {
-		// 		match self.question_handler_type {
-		// 			QuestionHandlerType::AreaConquer => {
-		// 				GameState::incr_phase(game, self.game_id, 1).await.unwrap();
-		// 			}
-		// 			QuestionHandlerType::Battle => {
-		// 				GameState::set_phase(game, self.game_id, 21).await.unwrap();
-		// 			}
-		// 		}
-		// 		let selection = Selection::get_redis(game, self.game_id).await.unwrap();
-		// 		let mut score_increase = Vec::with_capacity(3);
-		// 		for player in self.players.clone() {
-		// 			if self.answer_result.is_player_correct(player.rel_id) {
-		// 				Area::area_occupied(
-		// 					game,
-		// 					self.game_id,
-		// 					player.rel_id,
-		// 					selection.get_player_county(player.rel_id).cloned(),
-		// 				)
-		// 				.await
-		// 				.unwrap();
-		// 				score_increase.push(200);
-		// 			} else {
-		// 				AvailableAreas::push_county(
-		// 					game,
-		// 					self.game_id,
-		// 					selection.get_player_county(player.rel_id).cloned().unwrap(),
-		// 				)
-		// 				.await
-		// 				.unwrap();
-		// 				score_increase.push(0);
-		// 			}
-		// 		}
-		// 		TriviadorState::modify_scores(game, self.game_id, score_increase)
-		// 			.await
-		// 			.unwrap();
-		// 		for player in self.players.iter().filter(|x| x.is_player()) {
-		// 			send_player_commongame(game, self.game_id, player.id, player.rel_id).await;
-		// 		}
-		// 		Selection::clear(game, self.game_id).await.unwrap();
-		// 	}
-		// }
+		match self.state {
+			QuestionHandlerPhases::SendQuestion => {
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						self.game.write().await.state.game_state.phase = 4;
+					}
+					QuestionHandlerType::Battle => {
+						self.game.write().await.state.game_state.phase = 4;
+					}
+				}
+				let q = Question::emulate();
+				let state = self.game.read().await.state.clone();
+				// todo do actual work
+				self.game
+					.send_xml_channel(
+						&self.players[0],
+						quick_xml::se::to_string(&QuestionStageResponse::new_question(state, q))
+							.unwrap(),
+					)
+					.await
+					.unwrap();
+				self.game.wait_for_all_players(&self.players).await;
+			}
+			QuestionHandlerPhases::GetQuestionResponse => {
+				for player in self.players.iter().filter(|x| x.is_player()) {
+					match self.game.recv_command_channel(player).await.unwrap() {
+						ServerCommand::QuestionAnswer(ans) => {
+							self.answer_result.set_player(player.rel_id, ans);
+						}
+						_ => {
+							warn!("Invalid command");
+						}
+					}
+				}
+				for player in self.players.iter().filter(|x| !x.is_player()) {
+					let mut rng = StdRng::from_entropy();
+					let random_answer: u8 = rng.gen_range(1..=4);
+					self.answer_result.set_player(player.rel_id, random_answer);
+				}
+			}
+			QuestionHandlerPhases::SendCorrectAnswer => {
+				info!("todo but not necessary");
+				self.game.write().await.state.game_state.phase += 1;
+			}
+			QuestionHandlerPhases::SendPlayerAnswers => {
+				self.answer_result.good = Some(1);
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						self.game.write().await.state.game_state.phase += 1;
+					}
+					QuestionHandlerType::Battle => {
+						self.game.write().await.state.game_state.phase += 1;
+					}
+				}
+				let state = self.game.read().await.state.clone();
+				for player in self.players.iter().filter(|x| x.is_player()) {
+					self.game
+						.send_xml_channel(
+							player,
+							quick_xml::se::to_string(&QuestionStageResponse::new_answer_result(
+								state.clone(),
+								self.answer_result.clone(),
+							))
+							.unwrap(),
+						)
+						.await
+						.unwrap();
+				}
+				self.game.wait_for_all_players(&self.players).await;
+			}
+			QuestionHandlerPhases::SendUpdatedState => {
+				match self.question_handler_type {
+					QuestionHandlerType::AreaConquer => {
+						self.game.write().await.state.game_state.phase += 1;
+					}
+					QuestionHandlerType::Battle => {
+						self.game.write().await.state.game_state.phase = 21;
+					}
+				}
+				let selection = self.game.read().await.state.selection.clone();
+				let mut score_increase = Vec::with_capacity(3);
+				for player in self.players.clone() {
+					if self.answer_result.is_player_correct(player.rel_id) {
+						Area::area_occupied(
+							self.game.arc_clone(),
+							player.rel_id,
+							selection.get_player_county(player.rel_id).cloned(),
+						)
+						.await
+						.unwrap();
+						score_increase.push(200);
+					} else {
+						self.game.write().await.state.available_areas.push_county(
+							selection.get_player_county(player.rel_id).unwrap().clone(),
+						);
+						score_increase.push(0);
+					}
+				}
+				TriviadorState::modify_scores(self.game.arc_clone(), score_increase)
+					.await
+					.unwrap();
+				self.game.send_to_all_players(&self.players).await;
+				self.game.write().await.state.selection.clear();
+			}
+		}
 	}
 }
 
@@ -272,7 +257,6 @@ pub(crate) struct TipHandler {
 	tip_handler_type: TipHandlerType,
 	state: TipHandlerPhases,
 	players: Vec<SGamePlayer>,
-	game_id: u32,
 	tip_info: TipInfo,
 }
 
@@ -281,14 +265,12 @@ impl TipHandler {
 		game: SharedTrivGame,
 		stage_type: TipHandlerType,
 		players: Vec<SGamePlayer>,
-		game_id: u32,
 	) -> TipHandler {
 		TipHandler {
 			game,
 			tip_handler_type: stage_type,
 			state: TipHandlerPhases::SendTipRequest,
 			players,
-			game_id,
 			tip_info: TipInfo::new(),
 		}
 	}
@@ -321,11 +303,7 @@ impl TipHandler {
 			)
 			.await
 			.unwrap();
-		self.game
-			.read()
-			.await
-			.wait_for_all_players(&self.players)
-			.await;
+		self.game.wait_for_all_players(&self.players).await;
 	}
 
 	async fn get_tip_response(&mut self) {
@@ -339,7 +317,7 @@ impl TipHandler {
 			.map(|player| {
 				// Clone what you need outside the async move
 				let player = player.clone();
-				let game = self.game.clone();
+				let game = self.game.arc_clone();
 				let tip_info = Arc::clone(&tip_info);
 
 				task::spawn(async move {
@@ -394,12 +372,7 @@ impl TipHandler {
 				.await
 				.unwrap();
 		}
-		// wait_for_game_ready(temp_pool, 1).await;
-		self.game
-			.read()
-			.await
-			.wait_for_all_players(&self.players)
-			.await;
+		self.game.wait_for_all_players(&self.players).await;
 		let winner = tip_stage_response.tip_result.unwrap();
 		get_player_by_rel_id(self.players.clone(), winner.winner)
 	}

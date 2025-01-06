@@ -1,3 +1,2 @@
-- remove the distinction between player_id and player_rel_id, by using redis to store the rel_player_id in the match section
-- check the performance by removing redis
 - code cleanup
+- rework game acquiring logic (self.game)

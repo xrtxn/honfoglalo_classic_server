@@ -59,7 +59,7 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 						match attr.key.as_ref() {
 							b"CID" => {
 								let value = std::str::from_utf8(&attr.value).unwrap();
-								cid = value.parse::<i32>().unwrap_or_else(|_| 0);
+								cid = value.parse::<i32>().unwrap_or(0);
 							}
 							b"MN" => {
 								let value = std::str::from_utf8(&attr.value).unwrap();

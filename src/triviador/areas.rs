@@ -104,7 +104,11 @@ impl Area {
 		game: SharedTrivGame,
 		values: (County, Area),
 	) -> Result<Option<Area>, anyhow::Error> {
-		game.write().await.state.areas_info.insert(values.0, values.1);
+		game.write()
+			.await
+			.state
+			.areas_info
+			.insert(values.0, values.1);
 		// todo check this out
 		Ok(None)
 	}

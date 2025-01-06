@@ -170,16 +170,13 @@ impl QuestionAnswerResult {
 	}
 
 	pub(crate) fn is_player_correct(&self, rel_id: u8) -> bool {
-		let correct_answer;
-		match self.good {
+		let correct_answer = match self.good {
 			None => {
 				error!("Unable to check if answer is correct, good answer not set, setting to placeholder 1");
-				correct_answer = 1;
+				1
 			}
-			Some(_) => {
-				correct_answer = self.good.unwrap();
-			}
-		}
+			Some(_) => self.good.unwrap(),
+		};
 		match self.get_player(rel_id) {
 			Some(player_answer) => player_answer == correct_answer,
 			None => false,
@@ -280,7 +277,7 @@ pub struct TipInfo {
 	pub player_3_closeness: Option<String>,
 }
 
-fn timeorder_serializer<S>(x: &Vec<u8>, s: S) -> Result<S::Ok, S::Error>
+fn timeorder_serializer<S>(x: &[u8], s: S) -> Result<S::Ok, S::Error>
 where
 	S: Serializer,
 {

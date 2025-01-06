@@ -70,7 +70,7 @@ impl County {
 			}
 			County::BacsKiskun => {
 				hs.insert(County::Tolna);
-				hs.insert(County::Somogy);
+				hs.insert(County::Baranya);
 				hs.insert(County::Fejer);
 				hs.insert(County::Pest);
 				hs.insert(County::JaszNagykunSzolnok);
@@ -233,30 +233,19 @@ impl FromStr for County {
 		}
 	}
 }
-pub(crate) fn available_serialize<S>(
-	counties: &Option<AvailableAreas>,
-	s: S,
-) -> Result<S::Ok, S::Error>
+pub(crate) fn available_serialize<S>(counties: &AvailableAreas, s: S) -> Result<S::Ok, S::Error>
 where
 	S: Serializer,
 {
-	let counties = match counties {
-		// should return with error
-		None => {
-			return Err(serde::ser::Error::custom(
-				"Serialization error: No hashset available",
-			))
-		}
-		Some(ss) => {
-			if ss.areas.is_empty() {
-				return s.serialize_str("000000");
-			} else {
-				ss
-			}
-		}
+	if counties.get_counties().is_empty() {
+		return s.serialize_str("000000");
 	};
 	// there might be more efficient methods than copying but this works for now
-	let res = counties.areas.iter().map(|&county| county as i32).collect();
+	let res = counties
+		.get_counties()
+		.iter()
+		.map(|&county| county as i32)
+		.collect();
 	s.serialize_str(&encode_available_areas(res))
 }
 pub fn decode_available_areas(available: i32) -> Vec<i32> {

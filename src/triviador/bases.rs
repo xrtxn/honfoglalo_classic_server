@@ -91,7 +91,12 @@ impl Bases {
 		player: PlayerNames,
 		base: Base,
 	) -> Result<(), anyhow::Error> {
-		game.write().await.state.base_info.every_base.insert(player, base);
+		game.write()
+			.await
+			.state
+			.base_info
+			.every_base
+			.insert(player, base);
 		Ok(())
 	}
 }

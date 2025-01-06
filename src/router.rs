@@ -1,4 +1,7 @@
 use axum::{Extension, Json};
+use rand::rngs::StdRng;
+use rand::Rng;
+use rand::SeedableRng;
 use sqlx::PgPool;
 use tracing::{trace, warn};
 
@@ -80,15 +83,12 @@ pub async fn game(
 					))?)
 				}
 				CommandType::ChangeWaitHall(chw) => {
-					let msg;
-					match chw.waithall {
-						Waithall::Game => {
-							msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
-						}
+					let msg = match chw.waithall {
+						Waithall::Game => quick_xml::se::to_string(&GameMenuWaithall::emulate())?,
 						Waithall::Village => {
-							msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?;
+							quick_xml::se::to_string(&VillageSetupRoot::emulate())?
 						}
-					}
+					};
 					player_channel.send_message(msg).await.unwrap();
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -118,7 +118,8 @@ pub async fn game(
 					// todo handle other cases
 					if room.opp1 == -1 && room.opp2 == -1 {
 						// todo get next number
-						let room_number = 1;
+						let mut rng = StdRng::from_entropy();
+						let room_number = rng.gen_range(1..=100000);
 						friendly_rooms
 							.insert(
 								room_number,
@@ -149,7 +150,8 @@ pub async fn game(
 							player_channel.0,
 							server_command_channel.0,
 							GAME_ID,
-						).await;
+						)
+						.await;
 					});
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -160,6 +162,7 @@ pub async fn game(
 					server_command_channel
 						.send_message(ServerCommand::Ready)
 						.await?;
+					player_state.set_listen_ready(true).await;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -201,6 +204,11 @@ pub async fn game(
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
 
 			player_state.set_listen_ready(ser.listen.is_ready).await;
+
+			// while !player_state.get_listen_ready().await {
+			// tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+			// dbg!("waiting for listen ready");
+			// }
 
 			trace!("listen state is {}", player_state.get_listen_ready().await);
 			if !player_state.get_login().await {

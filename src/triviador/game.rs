@@ -1,3 +1,4 @@
+use std::borrow::Borrow;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -5,6 +6,7 @@ use serde::Serialize;
 use serde_with::skip_serializing_none;
 use tokio::sync::RwLock;
 
+use super::available_area::AvailableAreas;
 use super::triviador_state::GamePlayerChannels;
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
@@ -13,8 +15,8 @@ use crate::triviador::bases::Bases;
 use crate::triviador::cmd::Cmd;
 use crate::triviador::selection::Selection;
 use crate::triviador::{
-	available_area::AvailableAreas, game_state::GameState, player_info::PlayerInfo,
-	round_info::RoundInfo, triviador_state::TriviadorState,
+	game_state::GameState, player_info::PlayerInfo, round_info::RoundInfo,
+	triviador_state::TriviadorState,
 };
 use crate::users::ServerCommand;
 
@@ -25,7 +27,8 @@ impl SharedTrivGame {
 		Self(Arc::new(RwLock::new(game)))
 	}
 
-	pub fn clone(&self) -> Self {
+	/// Convenience function for Arc clone
+	pub fn arc_clone(&self) -> Self {
 		Self(Arc::clone(&self.0))
 	}
 
@@ -37,15 +40,15 @@ impl SharedTrivGame {
 		self.0.write().await
 	}
 
-	pub async fn send_xml_channel(&self, player: &SGamePlayer, msg: String) -> Result<(), flume::SendError<String>> {
+	pub async fn send_xml_channel(
+		&self,
+		player: &SGamePlayer,
+		msg: String,
+	) -> Result<(), flume::SendError<String>> {
 		let game = self.read().await;
 		let channel = game.utils.get(player).unwrap().channels.clone();
 		drop(game);
-		channel
-			.unwrap()
-			.xml_channel
-			.send_message(msg)
-			.await
+		channel.unwrap().xml_channel.send_message(msg).await
 	}
 
 	pub(crate) async fn recv_command_channel(
@@ -56,6 +59,18 @@ impl SharedTrivGame {
 		let channel = game.utils.get(player).unwrap().channels.clone();
 		drop(game);
 		channel.unwrap().command_channel.recv_message().await
+	}
+
+	// todo consider meging these two functions
+	pub(crate) async fn wait_for_all_players(&self, players: &[SGamePlayer]) {
+		for player in players.iter().filter(|x| x.is_player()) {
+			wait_for_game_ready(self.arc_clone().borrow(), player).await;
+		}
+	}
+	pub(crate) async fn send_to_all_players(&self, players: &[SGamePlayer]) {
+		for player in players.iter().filter(|x| x.is_player()) {
+			send_player_commongame(self.arc_clone().borrow(), player).await;
+		}
 	}
 }
 
@@ -75,7 +90,7 @@ pub struct TriviadorGame {
 
 impl TriviadorGame {
 	/// Creates a new triviador game
-	pub fn new_game(player_info: PlayerInfo) -> TriviadorGame {
+	pub(crate) fn new_game(player_info: PlayerInfo) -> TriviadorGame {
 		TriviadorGame {
 			state: TriviadorState {
 				map_name: "MAP_WD".to_string(),
@@ -95,9 +110,9 @@ impl TriviadorGame {
 				selection: Selection::new(),
 				base_info: Bases::all_available(),
 				areas_info: Area::new(),
-				available_areas: None,
+				available_areas: AvailableAreas::new(),
 				used_helps: "0".to_string(),
-				fill_round: None,
+				fill_round_winners: "".to_string(),
 				room_type: None,
 				shield_mission: None,
 				war_order: None,
@@ -110,13 +125,13 @@ impl TriviadorGame {
 	}
 
 	pub(crate) async fn set_player_cmd(&mut self, player: &SGamePlayer, cmd: Option<Cmd>) {
-		self.utils.get_mut(&player).unwrap().cmd = cmd;
+		self.utils.get_mut(player).unwrap().cmd = cmd;
 	}
 
-	pub(crate) async fn wait_for_all_players(&self, players: &Vec<SGamePlayer>) {
-		for player in players.iter().filter(|x| x.is_player()) {
-			wait_for_game_ready(self, player).await;
-		}
+	pub(crate) async fn add_fill_round_winner(&mut self, winner: u8) {
+		self.state
+			.fill_round_winners
+			.push_str(winner.to_string().as_str());
 	}
 }
 

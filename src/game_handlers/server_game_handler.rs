@@ -37,7 +37,7 @@ impl ServerGameHandler {
 		];
 
 		// initial setup
-		let mut server_game = SGame::new(game.clone(), server_game_players, game_id);
+		let mut server_game = SGame::new(game.arc_clone(), server_game_players);
 
 		let channels = GamePlayerChannels {
 			xml_channel: player_channel.clone(),

@@ -4,7 +4,6 @@ use serde::Serialize;
 use serde_with::skip_serializing_none;
 
 use super::game::SharedTrivGame;
-use super::game::TriviadorGame;
 use super::war_order::WarOrder;
 use crate::app::ServerCommandChannel;
 use crate::app::XmlPlayerChannel;
@@ -19,7 +18,6 @@ use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
 use crate::triviador::shield_mission::ShieldMission;
-use crate::users::ServerCommand;
 
 #[skip_serializing_none]
 #[derive(Serialize, Debug, Clone)]
@@ -42,14 +40,14 @@ pub(crate) struct TriviadorState {
 	#[serde(rename = "@B")]
 	pub base_info: Bases,
 	#[serde(rename = "@A", serialize_with = "areas_full_serializer")]
+	// todo replace this with an enum struct
 	pub areas_info: HashMap<County, Area>,
 	#[serde(rename = "@AA", serialize_with = "available_serialize")]
-	// todo remove option
-	pub available_areas: Option<AvailableAreas>,
+	pub available_areas: AvailableAreas,
 	#[serde(rename = "@UH")]
 	pub used_helps: String,
 	#[serde(rename = "@FAO")]
-	pub fill_round: Option<i8>,
+	pub fill_round_winners: String,
 	// possibly unused
 	#[serde(rename = "@RT")]
 	pub room_type: Option<String>,
@@ -81,7 +79,8 @@ impl TriviadorState {
 		for (i, score) in scores.iter_mut().enumerate() {
 			*score += by[i];
 		}
-		game.write().await.state.players_points = format!("{},{},{}", scores[0], scores[1], scores[2]);
+		game.write().await.state.players_points =
+			format!("{},{},{}", scores[0], scores[1], scores[2]);
 		Ok(())
 	}
 
@@ -101,7 +100,8 @@ impl TriviadorState {
 				break;
 			}
 		}
-		game.write().await.state.players_points = format!("{},{},{}", scores[0], scores[1], scores[2]);
+		game.write().await.state.players_points =
+			format!("{},{},{}", scores[0], scores[1], scores[2]);
 		Ok(())
 	}
 }

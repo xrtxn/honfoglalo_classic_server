@@ -1,3 +1,5 @@
+use std::borrow::Borrow;
+
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tracing::{error, trace, warn};
@@ -96,90 +98,93 @@ impl AreaConquerHandler {
 			}
 			AreaConquerHandlerPhases::Announcement => {
 				self.game.write().await.state.game_state.phase = 0;
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(self.game.clone(), player).await;
-				}
-				trace!("Area select announcement waiting");
 				self.game
-					.read()
-					.await
-					.wait_for_all_players(&self.players)
+					.send_to_all_players(self.players.clone().borrow())
 					.await;
+				trace!("Area select announcement waiting");
+				if self.game.read().await.state.game_state.round == 1 {
+					self.game
+						.wait_for_all_players(self.players.clone().borrow())
+						.await;
+				}
+				// tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
 				trace!("Area select announcement game ready");
 			}
 			AreaConquerHandlerPhases::AskDesiredArea => {
-				let active_player = self.game.read().await.state.active_player.clone().unwrap();
-				let areas = self.game.read().await.state.areas_info.clone();
-				trace!("areas: {:?}", areas);
-				let available = AvailableAreas::get_limited_available(&areas, active_player.rel_id);
+				let readgame = self.game.read().await;
+				let active_player = readgame.state.active_player.clone().unwrap();
+				let areas = readgame.state.areas_info.clone();
+				let selection = readgame.state.selection.clone();
+				drop(readgame);
+				let available =
+					AvailableAreas::get_limited_available(&areas, &selection, active_player.rel_id);
 				self.game.write().await.state.available_areas = available.clone();
 				self.player_area_select_backend(active_player.rel_id)
 					.await
 					.unwrap();
 				if active_player.is_player() {
 					Cmd::set_player_cmd(
-						self.game.clone(),
+						self.game.arc_clone(),
 						&active_player,
 						Some(Cmd::select_command(available, 90)),
 					)
 					.await;
 				}
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(self.game.clone(), player).await;
-				}
+				self.game.send_to_all_players(&self.players).await;
 				trace!("Send select cmd waiting");
-				self.game
-					.read()
-					.await
-					.wait_for_all_players(&self.players)
-					.await;
+				self.game.wait_for_all_players(&self.players).await;
 				trace!("Send select cmd game ready");
 			}
 			AreaConquerHandlerPhases::DesiredAreaResponse => {
 				let active_player = self.game.read().await.state.active_player.clone().unwrap();
 				if active_player.is_player() {
-					trace!("game acquired");
-					// FIXME deadlock
-					trace!("Waiting for command channel");
-					match self.game.recv_command_channel(&active_player).await.unwrap() {
+					match self
+						.game
+						.recv_command_channel(&active_player)
+						.await
+						.unwrap()
+					{
 						ServerCommand::SelectArea(val) => {
 							self.new_area_selected(val, active_player.rel_id)
 								.await
 								.unwrap();
 						}
 						_ => {
-							warn!("Invalid command");
+							error!("Invalid command");
 						}
 					}
 					trace!("command received");
 				} else {
-					let areas = self.game.read().await.state.areas_info.clone();
-					let available_areas =
-						AvailableAreas::get_limited_available(&areas, active_player.rel_id)
-							.unwrap();
+					let readgame = self.game.read().await;
+					let areas = readgame.state.areas_info.clone();
+					let selection = readgame.state.selection.clone();
+					drop(readgame);
+					let available_areas = AvailableAreas::get_limited_available(
+						&areas,
+						&selection,
+						active_player.rel_id,
+					);
 
 					let mut rng = StdRng::from_entropy();
-					let random_area = available_areas.areas.into_iter().choose(&mut rng).unwrap();
-					self.new_area_selected(random_area as u8, active_player.rel_id)
+					let random_area = available_areas
+						.get_counties()
+						.into_iter()
+						.choose(&mut rng)
+						.unwrap();
+					self.new_area_selected(*random_area as u8, active_player.rel_id)
 						.await
 						.unwrap();
 				}
 				self.area_selected_stage().await;
 
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					send_player_commongame(self.game.clone(), player).await;
-				}
+				self.game.send_to_all_players(&self.players).await;
 				trace!("Common game ready waiting");
-				self.game
-					.read()
-					.await
-					.wait_for_all_players(&self.players)
-					.await;
+				self.game.wait_for_all_players(&self.players).await;
 				trace!("Common game ready");
 			}
 			AreaConquerHandlerPhases::Question => {
 				let mut qh = QuestionHandler::new(
-					self.game.clone(),
+					self.game.arc_clone(),
 					QuestionHandlerType::AreaConquer,
 					self.players.clone(),
 				)
@@ -188,11 +193,8 @@ impl AreaConquerHandler {
 			}
 			AreaConquerHandlerPhases::SendUpdatedState => {
 				// it actually gets sent in the question handler
-				self.game
-					.read()
-					.await
-					.wait_for_all_players(&self.players)
-					.await;
+				self.game.wait_for_all_players(&self.players).await;
+				self.game.write().await.state.round_info.mini_phase_num = 0;
 			}
 		}
 	}
@@ -210,8 +212,14 @@ impl AreaConquerHandler {
 		let mut game = self.game.write().await;
 		game.state.game_state.phase = 1;
 
+		let num = if game.state.round_info.mini_phase_num == 3 {
+			1
+		} else {
+			game.state.round_info.mini_phase_num + 1
+		};
+
 		game.state.round_info = RoundInfo {
-			mini_phase_num: game.state.round_info.mini_phase_num + 1,
+			mini_phase_num: num,
 			rel_player_id: game_player_id,
 			attacked_player: None,
 		};
@@ -228,9 +236,13 @@ impl AreaConquerHandler {
 		selected_area: u8,
 		game_player_id: u8,
 	) -> Result<(), anyhow::Error> {
-		AvailableAreas::pop_county(self.game.clone(), County::try_from(selected_area)?).await;
+		self.game
+			.write()
+			.await
+			.state
+			.available_areas
+			.pop_county(&County::try_from(selected_area)?);
 
-		// let mut prev = Selection::get_redis(temp_pool, game_id).await?;
 		self.game.write().await.state.selection.add_selection(
 			PlayerNames::try_from(game_player_id)?,
 			County::try_from(selected_area)?,
