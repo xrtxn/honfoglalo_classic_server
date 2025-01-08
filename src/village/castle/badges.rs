@@ -41,10 +41,12 @@ pub struct Badges {
 	pub new_levels: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub fn all_castle_badges() -> Vec<String> {
 	Vec::new()
 }
 
+#[allow(dead_code)]
 pub fn all_badges() -> Vec<String> {
 	Vec::new()
 }

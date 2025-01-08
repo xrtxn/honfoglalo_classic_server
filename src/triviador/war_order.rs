@@ -41,14 +41,11 @@ impl WarOrder {
 		let players = self.order[start..(start + amount)].to_vec();
 		Ok(players)
 	}
+}
 
-	pub(crate) fn get_player_from_order(&self, round: u8, lpnum: u8) -> Result<u8, anyhow::Error> {
-		let index = ((round - 1) * 3 + (lpnum - 1)) as usize;
-		if index < self.order.len() {
-			Ok(self.order[index])
-		} else {
-			Err(anyhow::anyhow!("Index out of bounds"))
-		}
+impl From<Vec<u8>> for WarOrder {
+	fn from(counties: Vec<u8>) -> Self {
+		WarOrder { order: counties }
 	}
 }
 
@@ -64,18 +61,6 @@ impl Serialize for WarOrder {
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	#[test]
-	fn test_war_order() {
-		// 123321213231231123
-		let wo = WarOrder {
-			order: vec![1, 2, 3, 3, 2, 1],
-		};
-
-		assert_eq!(wo.get_player_from_order(1, 1).unwrap(), 1);
-		assert_eq!(wo.get_player_from_order(2, 1).unwrap(), 3);
-		assert_eq!(wo.get_player_from_order(2, 2).unwrap(), 2);
-	}
 
 	#[test]
 	fn test_get_next_players() {

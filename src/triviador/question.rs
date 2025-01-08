@@ -51,14 +51,10 @@ impl QuestionStageResponse {
 #[serde(rename = "ANSWER")]
 pub struct SelfAnswer {
 	#[serde(rename = "@ANSWER")]
-	pub answer: u8,
+	answer: u8,
 }
 
 impl SelfAnswer {
-	pub(crate) fn new(answer: u8) -> SelfAnswer {
-		SelfAnswer { answer }
-	}
-
 	pub(crate) fn get_answer(&self) -> u8 {
 		self.answer
 	}
@@ -201,16 +197,6 @@ pub struct TipStageResponse {
 }
 
 impl TipStageResponse {
-	pub(crate) fn new(state: TriviadorState) -> TipStageResponse {
-		TipStageResponse {
-			state,
-			cmd: None,
-			question: None,
-			tip_info: None,
-			tip_result: None,
-		}
-	}
-
 	pub(crate) fn new_tip(state: TriviadorState, question: Question) -> TipStageResponse {
 		TipStageResponse {
 			state,

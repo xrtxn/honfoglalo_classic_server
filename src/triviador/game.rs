@@ -1,16 +1,17 @@
 use std::borrow::Borrow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
 use serde_with::skip_serializing_none;
 use tokio::sync::RwLock;
 
+use super::areas::Areas;
 use super::available_area::AvailableAreas;
+use super::player_points::PlayerPoints;
 use super::triviador_state::GamePlayerChannels;
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
-use crate::triviador::areas::Area;
 use crate::triviador::bases::Bases;
 use crate::triviador::cmd::Cmd;
 use crate::triviador::selection::Selection;
@@ -61,7 +62,7 @@ impl SharedTrivGame {
 		channel.unwrap().command_channel.recv_message().await
 	}
 
-	// todo consider meging these two functions
+	// todo truly async send these
 	pub(crate) async fn wait_for_all_players(&self, players: &[SGamePlayer]) {
 		for player in players.iter().filter(|x| x.is_player()) {
 			wait_for_game_ready(self.arc_clone().borrow(), player).await;
@@ -106,10 +107,10 @@ impl TriviadorGame {
 				},
 				players_connected: "123".to_string(),
 				players_chat_state: "0,0,0".to_string(),
-				players_points: "0,0,0".to_string(),
+				players_points: PlayerPoints::new(),
 				selection: Selection::new(),
 				base_info: Bases::all_available(),
-				areas_info: Area::new(),
+				areas_info: Areas::new(),
 				available_areas: AvailableAreas::new(),
 				used_helps: "0".to_string(),
 				fill_round_winners: "".to_string(),
@@ -124,10 +125,6 @@ impl TriviadorGame {
 		}
 	}
 
-	pub(crate) async fn set_player_cmd(&mut self, player: &SGamePlayer, cmd: Option<Cmd>) {
-		self.utils.get_mut(player).unwrap().cmd = cmd;
-	}
-
 	pub(crate) async fn add_fill_round_winner(&mut self, winner: u8) {
 		self.state
 			.fill_round_winners
@@ -139,13 +136,4 @@ impl TriviadorGame {
 pub(crate) struct PlayerUtils {
 	pub cmd: Option<Cmd>,
 	pub channels: Option<GamePlayerChannels>,
-}
-
-impl PlayerUtils {
-	pub fn new() -> Self {
-		Self {
-			cmd: None,
-			channels: None,
-		}
-	}
 }

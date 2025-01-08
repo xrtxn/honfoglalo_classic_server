@@ -29,6 +29,8 @@ use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
+const QUICK_BATTLE_EMU: bool = true;
+
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this
 	Json(HelpResponse::emulate())
@@ -78,6 +80,16 @@ pub async fn game(
 					// todo validate login
 					player_state.set_login(false).await;
 					player_state.set_listen_ready(false).await;
+					if QUICK_BATTLE_EMU {
+						tokio::spawn(async move {
+							ServerGameHandler::new_friendly(
+								player_channel.0,
+								server_command_channel.0,
+								GAME_ID,
+							)
+							.await;
+						});
+					}
 					Ok(modified_xml_response(&CommandResponse::ok(
 						PLAYER_ID, comm.mn,
 					))?)
@@ -180,7 +192,7 @@ pub async fn game(
 				}
 				CommandType::QuestionAnswer(ans) => {
 					server_command_channel
-						.send_message(ServerCommand::QuestionAnswer(ans.answer))
+						.send_message(ServerCommand::QuestionAnswer(ans.get_answer()))
 						.await?;
 
 					Ok(modified_xml_response(&CommandResponse::ok(

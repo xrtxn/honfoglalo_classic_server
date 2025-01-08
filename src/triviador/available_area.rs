@@ -1,12 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use tracing::trace;
-use tracing_subscriber::filter;
+use serde::Serializer;
+use tracing::info;
 
-use super::areas;
-use super::game::{SharedTrivGame, TriviadorGame};
+use super::areas::Areas;
 use super::selection::Selection;
-use crate::triviador::areas::Area;
 use crate::triviador::county::County;
 
 #[derive(PartialEq, Clone, Debug)]
@@ -17,7 +15,7 @@ impl AvailableAreas {
 		AvailableAreas(HashSet::new())
 	}
 
-	pub(crate) fn get_counties(&self) -> &HashSet<County> {
+	pub(crate) fn counties(&self) -> &HashSet<County> {
 		&self.0
 	}
 
@@ -26,20 +24,18 @@ impl AvailableAreas {
 	}
 
 	/// Separates the areas into two sets, one for the player and one for the other players
-	fn separate_areas(
-		areas: &HashMap<County, Area>,
-		player_id: u8,
-	) -> (AvailableAreas, AvailableAreas) {
+	fn separate_areas(areas: &Areas, player_id: u8) -> (AvailableAreas, AvailableAreas) {
 		let mut player_areas = AvailableAreas::new();
 		let mut other_areas = AvailableAreas::new();
 
-		for (county, area) in areas {
+		for (county, area) in areas.get_areas() {
 			if area.owner == player_id {
 				player_areas.0.insert(*county);
 			} else if area.owner != 0 {
 				other_areas.0.insert(*county);
 			}
 		}
+		dbg!(&player_areas, &other_areas);
 		(player_areas, other_areas)
 	}
 
@@ -57,13 +53,12 @@ impl AvailableAreas {
 		filtered_areas
 	}
 
-	// todo &mut self
-	fn filter_occupied_areas(&mut self, areas: &HashMap<County, Area>) {
+	fn filter_occupied_areas(&mut self, areas: &Areas) {
 		self.0.retain(|available_county| {
-			if let Some(area) = areas.get(available_county) {
+			if let Some(area) = areas.get_area(available_county) {
 				area.owner == 0
 			} else {
-				false
+				true
 			}
 		});
 	}
@@ -78,33 +73,53 @@ impl AvailableAreas {
 		}
 	}
 
-	pub(crate) fn get_limited_available(
-		areas: &HashMap<County, Area>,
+	fn filter_player_areas(&mut self, areas: &Areas, rel_id: u8) {
+		self.0.retain(|county| {
+			if let Some(area) = areas.get_area(county) {
+				area.owner != rel_id
+			} else {
+				false
+			}
+		});
+	}
+
+	pub(crate) fn get_base_areas(areas: &Areas, rel_id: u8) -> AvailableAreas {
+		let (_, other_areas) = Self::separate_areas(areas, rel_id);
+		let excluded = Self::get_neighbouring_areas(&other_areas);
+		let mut player_areas = Self::all_counties();
+		player_areas.0.retain(|p| !excluded.0.contains(p));
+		player_areas.filter_occupied_areas(areas);
+		player_areas
+	}
+
+	pub(crate) fn get_conquerable_areas(
+		areas: &Areas,
 		selection: &Selection,
 		rel_player_id: u8,
 	) -> AvailableAreas {
-		let (mut player_areas, other_areas) = Self::separate_areas(areas, rel_player_id);
-		if !player_areas.0.is_empty() {
-			player_areas = Self::get_neighbouring_areas(&player_areas);
-		} else {
-			let excluded = Self::get_neighbouring_areas(&other_areas);
-			player_areas = Self::all_counties();
-			player_areas.0.retain(|p| !excluded.0.contains(p));
-		}
-
+		let (mut player_areas, _) = Self::separate_areas(areas, rel_player_id);
+		player_areas = Self::get_neighbouring_areas(&player_areas);
 		player_areas.filter_occupied_areas(areas);
 		player_areas.filter_selected_areas(selection);
 
 		// if there are no filtered available areas, but there are still free areas return all
 		// unoccupied areas
 		// todo check if there are still free areas
-		if player_areas.get_counties().is_empty() {
+		if player_areas.counties().is_empty() {
 			player_areas = AvailableAreas::all_counties();
 			player_areas.filter_occupied_areas(areas);
 			player_areas.filter_selected_areas(selection);
 		}
 
 		player_areas
+	}
+
+	pub(crate) fn get_attackable_areas(areas: &Areas, rel_id: u8) -> AvailableAreas {
+		let (player_areas, _) = Self::separate_areas(areas, rel_id);
+		let mut neighbouring = Self::get_neighbouring_areas(&player_areas);
+		// remove player areas
+		neighbouring.filter_player_areas(areas, rel_id);
+		neighbouring
 	}
 
 	/// this does not fail if the removable county is not there
@@ -139,6 +154,38 @@ impl AvailableAreas {
 			County::Vas,
 		]))
 	}
+
+	pub(crate) fn available_serialize<S>(counties: &AvailableAreas, s: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		if counties.counties().is_empty() {
+			return s.serialize_str("000000");
+		};
+		// there might be more efficient methods than copying but this works for now
+		let res = counties
+			.counties()
+			.iter()
+			.map(|&county| county as i32)
+			.collect();
+		s.serialize_str(&Self::encode_available_areas(res))
+	}
+
+	pub fn encode_available_areas(areas: Vec<i32>) -> String {
+		info!("Encoding areas: {:?}", areas.clone());
+		let mut available: i32 = 0;
+
+		for &area in &areas {
+			if (1..=30).contains(&area) {
+				available |= 1 << (area - 1);
+			}
+		}
+
+		// Convert the integer to a byte array (in big-endian format)
+		let available_bytes = available.to_be_bytes();
+
+		crate::utils::to_hex_with_length(&available_bytes, 6)
+	}
 }
 
 impl From<Vec<County>> for AvailableAreas {
@@ -149,39 +196,47 @@ impl From<Vec<County>> for AvailableAreas {
 
 #[cfg(test)]
 mod tests {
+	use std::str::FromStr;
+
 	use pretty_assertions::assert_eq;
 
 	use super::*;
 	use crate::triviador::game_player_data::PlayerNames;
 
+	pub fn decode_available_areas(available: i32) -> Vec<i32> {
+		let mut res = Vec::new();
+		for i in 1..=30 {
+			if (available & (1 << (i - 1))) != 0 {
+				res.push(i);
+			}
+		}
+		res
+	}
+
 	#[test]
 	fn get_limited_available() {
-		let areas =
-			Area::deserialize_full("00000000000000000000000000000011000000".to_string()).unwrap();
+		// Szabolcs-Szatmár-Bereg
+		let areas = Areas::from_str("00000000000000000000000000000011000000").unwrap();
+
 		let mut selection = Selection::new();
 
-		let available = AvailableAreas::get_limited_available(&areas, &selection, 1);
+		let available = AvailableAreas::get_conquerable_areas(&areas, &selection, 1);
 
 		assert_eq!(available.0.len(), 2);
 		assert!(available.0.contains(&County::Borsod));
 		assert!(available.0.contains(&County::HajduBihar));
 
-		let p2_available = AvailableAreas::get_limited_available(&areas, &selection, 2);
+		let p2_available = AvailableAreas::get_base_areas(&areas, 2);
 
 		assert_eq!(p2_available.0.len(), 16);
 		assert!(!p2_available.0.contains(&County::SzabolcsSzatmarBereg));
 		assert!(!p2_available.0.contains(&County::Borsod));
 		assert!(!p2_available.0.contains(&County::HajduBihar));
 
-		let areas =
-			Area::deserialize_full("00001100000000000000000000000000000000".to_string()).unwrap();
+		let areas = Areas::from_str("00001100000000000000000000000000000000").unwrap();
 		selection.add_selection(PlayerNames::Player2, County::SzabolcsSzatmarBereg);
-		let p2_available = AvailableAreas::get_limited_available(&areas, &selection, 2);
-		assert_eq!(p2_available.0.len(), 13);
-		assert!(!p2_available.0.contains(&County::Nograd));
-		assert!(!p2_available.0.contains(&County::Pest));
-		assert!(!p2_available.0.contains(&County::JaszNagykunSzolnok));
-		assert!(!p2_available.0.contains(&County::Borsod));
+		let p2_available = AvailableAreas::get_conquerable_areas(&areas, &selection, 2);
+		assert_eq!(p2_available.0.len(), 17);
 		assert!(!p2_available.0.contains(&County::Heves));
 		// because it is selected
 		assert!(!p2_available.0.contains(&County::SzabolcsSzatmarBereg));
@@ -189,8 +244,7 @@ mod tests {
 
 	#[test]
 	fn separate_areas() {
-		let areas =
-			Area::deserialize_full("11000000000000120000000000130000000000".to_string()).unwrap();
+		let areas = Areas::from_str("11000000000000120000000000130000000000").unwrap();
 
 		let sep = AvailableAreas::separate_areas(&areas, 1);
 
@@ -242,13 +296,51 @@ mod tests {
 		assert!(!filtered.0.contains(&County::Pest));
 		assert!(!filtered.0.contains(&County::SzabolcsSzatmarBereg));
 	}
+
+	#[test]
+	fn attackable_areas() {
+		let areas = Areas::from_str("11414241414142124342134342424243414343").unwrap();
+		// let player_areas = AvailableAreas::from(vec![County::Pest]);
+
+		let filtered = AvailableAreas::get_attackable_areas(&areas, 1);
+
+		assert!(filtered.counties().contains(&County::Heves));
+		assert!(filtered.counties().contains(&County::Borsod));
+		assert!(filtered.counties().contains(&County::HajduBihar));
+		assert!(filtered.counties().contains(&County::Bekes));
+		assert!(filtered.counties().contains(&County::Csongrad));
+		assert!(filtered.counties().contains(&County::Tolna));
+		assert!(filtered.counties().contains(&County::Somogy));
+		assert!(filtered.counties().contains(&County::Veszprem));
+		assert!(filtered.counties().contains(&County::KomaromEsztergom));
+		assert!(!filtered.counties().contains(&County::Pest));
+		assert!(!filtered.counties().contains(&County::Fejer));
+		assert!(!filtered.counties().contains(&County::BacsKiskun));
+		assert!(!filtered.counties().contains(&County::Baranya));
+		assert!(!filtered.counties().contains(&County::JaszNagykunSzolnok));
+		assert!(!filtered.counties().contains(&County::Nograd));
+	}
 	#[test]
 	fn deserializer() {
-		let areas =
-			Area::deserialize_full("11000000000000120000000000130000000000".to_string()).unwrap();
+		let areas = Areas::from_str("11000000000000120000000000130000000000").unwrap();
 
-		assert_eq!(areas.get(&County::Pest).unwrap().owner, 1);
-		assert_eq!(areas.get(&County::Borsod).unwrap().owner, 2);
-		assert_eq!(areas.get(&County::Veszprem).unwrap().owner, 3);
+		assert_eq!(areas.get_area(&County::Pest).unwrap().owner, 1);
+		assert_eq!(areas.get_area(&County::Borsod).unwrap().owner, 2);
+		assert_eq!(areas.get_area(&County::Veszprem).unwrap().owner, 3);
+	}
+
+	#[test]
+	fn county_serialize() {
+		let decoded = decode_available_areas(i32::from_str_radix("07FFFF", 16).unwrap());
+		assert_eq!(
+			decoded,
+			vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+		);
+		assert_eq!(
+			AvailableAreas::encode_available_areas(vec![
+				1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19
+			],),
+			"077FFF"
+		)
 	}
 }

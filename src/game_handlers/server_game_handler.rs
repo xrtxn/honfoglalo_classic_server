@@ -52,13 +52,6 @@ impl ServerGameHandler {
 			},
 		);
 
-		// todo this is a temporary solution
-		loop {
-			server_game
-				// avoid cloning in the future
-				.command()
-				.await;
-			server_game.next();
-		}
+		server_game.handle_all().await;
 	}
 }

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use serde::{Serialize, Serializer};
 
@@ -45,7 +46,17 @@ impl Selection {
 		Ok(serialized)
 	}
 
-	pub fn deserialize_full(s: &str) -> Result<Self, anyhow::Error> {
+	pub(crate) fn get_player_county(&self, rel_id: u8) -> Option<&County> {
+		PlayerNames::try_from(rel_id)
+			.ok()
+			.and_then(|player| self.counties.get(&player))
+	}
+}
+
+impl FromStr for Selection {
+	type Err = anyhow::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let vals = split_string_n(s, 2);
 		let mut rest: HashMap<PlayerNames, County> = HashMap::with_capacity(3);
 		for (i, county_str) in vals.iter().enumerate() {
@@ -58,12 +69,6 @@ impl Selection {
 			);
 		}
 		Ok(Self { counties: rest })
-	}
-
-	pub(crate) fn get_player_county(&self, rel_id: u8) -> Option<&County> {
-		PlayerNames::try_from(rel_id)
-			.ok()
-			.and_then(|player| self.counties.get(&player))
 	}
 }
 
@@ -98,7 +103,7 @@ mod tests {
 		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
 		selection.add_selection(PlayerNames::Player2, County::Veszprem);
 		selection.add_selection(PlayerNames::Player3, County::Csongrad);
-		let serialized = Selection::deserialize_full("090E0B").unwrap();
+		let serialized = Selection::from_str("090E0B").unwrap();
 		assert_eq!(serialized, selection);
 	}
 
@@ -108,7 +113,7 @@ mod tests {
 		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
 		selection.add_selection(PlayerNames::Player2, County::Veszprem);
 		selection.add_selection(PlayerNames::Player3, County::Csongrad);
-		let serialized = Selection::deserialize_full("090E0B").unwrap();
+		let serialized = Selection::from_str("090E0B").unwrap();
 		assert_eq!(serialized, selection);
 	}
 }

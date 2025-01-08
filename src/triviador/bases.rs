@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use serde::{Serialize, Serializer};
 
-use super::game::{SharedTrivGame, TriviadorGame};
+use super::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerNames;
 use crate::utils::split_string_n;
 
@@ -20,6 +21,7 @@ impl Base {
 		}
 	}
 
+	#[allow(dead_code)]
 	pub fn tower_destroyed(&mut self) {
 		self.towers_destroyed += 1;
 	}
@@ -28,9 +30,13 @@ impl Base {
 		let base_part = self.towers_destroyed << 6;
 		crate::utils::to_hex_with_length(&[self.base_id + base_part], 2)
 	}
+}
 
-	pub fn deserialize_from_hex(hex: &str) -> Result<Self, anyhow::Error> {
-		let value = u8::from_str_radix(hex, 16)?;
+impl FromStr for Base {
+	type Err = anyhow::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let value = u8::from_str_radix(s, 16)?;
 		let towers_destroyed = value >> 6;
 		let base_id = value & 0b0011_1111;
 		Ok(Base {
@@ -67,19 +73,6 @@ impl Bases {
 		Ok(serialized)
 	}
 
-	pub fn deserialize_full(s: &str) -> Result<Self, anyhow::Error> {
-		let vals = split_string_n(s, 2);
-		let mut rest: HashMap<PlayerNames, Base> = HashMap::with_capacity(3);
-		for (i, base_str) in vals.iter().enumerate() {
-			rest.insert(
-				// increase by 1 because we don't have Player0
-				PlayerNames::try_from(i as u8 + 1)?,
-				Base::deserialize_from_hex(base_str)?,
-			);
-		}
-		Ok(Self { every_base: rest })
-	}
-
 	pub fn all_available() -> Self {
 		Self {
 			every_base: HashMap::new(),
@@ -98,6 +91,23 @@ impl Bases {
 			.every_base
 			.insert(player, base);
 		Ok(())
+	}
+}
+
+impl FromStr for Bases {
+	type Err = anyhow::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let vals = split_string_n(s, 2);
+		let mut rest: HashMap<PlayerNames, Base> = HashMap::with_capacity(3);
+		for (i, base_str) in vals.iter().enumerate() {
+			rest.insert(
+				// increase by 1 because we don't have Player0
+				PlayerNames::try_from(i as u8 + 1)?,
+				Base::from_str(base_str)?,
+			);
+		}
+		Ok(Self { every_base: rest })
 	}
 }
 
@@ -120,15 +130,15 @@ mod tests {
 		base.tower_destroyed();
 		base.tower_destroyed();
 		assert_eq!(base.serialize_to_hex(), "82");
-		assert_eq!(Base::deserialize_from_hex("82").unwrap(), base);
+		assert_eq!(Base::from_str("82").unwrap(), base);
 
 		let base = Base::new(8);
 
 		assert_eq!(base.serialize_to_hex(), "08");
-		assert_eq!(Base::deserialize_from_hex("08").unwrap(), base);
+		assert_eq!(Base::from_str("08").unwrap(), base);
 
 		let s = "8C080B";
-		let res = Bases::deserialize_full(s).unwrap();
+		let res = Bases::from_str(s).unwrap();
 		assert_eq!(
 			Bases {
 				every_base: HashMap::from([

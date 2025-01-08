@@ -1,7 +1,5 @@
-use std::ops::Deref;
 use std::sync::Arc;
 
-use fred::clients::RedisPool;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use tokio::sync::Mutex;
@@ -10,83 +8,47 @@ use tracing::{info, warn};
 
 use crate::emulator::Emulator;
 use crate::game_handlers::s_game::{get_player_by_rel_id, SGamePlayer};
-use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
-use crate::triviador::available_area::AvailableAreas;
-use crate::triviador::game::{self, SharedTrivGame, TriviadorGame};
-use crate::triviador::game_state::GameState;
+use crate::triviador::game::SharedTrivGame;
 use crate::triviador::question::{
 	Question, QuestionAnswerResult, QuestionStageResponse, TipInfo, TipStageResponse,
 };
-use crate::triviador::selection::Selection;
-use crate::triviador::triviador_state::TriviadorState;
 use crate::users::ServerCommand;
+
+// 2,1,4
+// SendQuestion,
+//
+// GetQuestionResponse,
+//
+// 2,1,5 (not sent)
+// Sends the correct answer number - this is completely unnecessary
+// SendCorrectAnswer,
+//
+// 2,1,6
+// SendPlayerAnswers,
+//
+// 2,1,7
+// SendUpdatedState,
 
 pub(crate) enum QuestionHandlerType {
 	AreaConquer,
 	Battle,
 }
 
-#[derive(PartialEq, Clone)]
-enum QuestionHandlerPhases {
-	// 2,1,4
-	SendQuestion,
-	GetQuestionResponse,
-	// 2,1,5 (not sent)
-	// Sends the correct answer number - this is completely unnecessary
-	SendCorrectAnswer,
-	// 2,1,6
-	SendPlayerAnswers,
-	// 2,1,7
-	SendUpdatedState,
-}
-
-impl QuestionHandlerPhases {
-	fn new() -> QuestionHandlerPhases {
-		QuestionHandlerPhases::SendQuestion
-	}
-
-	fn next(&mut self) {
-		match self {
-			QuestionHandlerPhases::SendQuestion => {
-				*self = QuestionHandlerPhases::GetQuestionResponse
-			}
-			QuestionHandlerPhases::GetQuestionResponse => {
-				*self = QuestionHandlerPhases::SendCorrectAnswer
-			}
-			QuestionHandlerPhases::SendCorrectAnswer => {
-				*self = QuestionHandlerPhases::SendPlayerAnswers
-			}
-			QuestionHandlerPhases::SendPlayerAnswers => {
-				*self = QuestionHandlerPhases::SendUpdatedState
-			}
-			QuestionHandlerPhases::SendUpdatedState => {
-				warn!("Overstepped the phases, returning to SendQuestion");
-				*self = QuestionHandlerPhases::SendQuestion
-			}
-		}
-	}
-}
-
 pub(crate) struct QuestionHandler {
 	game: SharedTrivGame,
 	question_handler_type: QuestionHandlerType,
-	state: QuestionHandlerPhases,
 	players: Vec<SGamePlayer>,
 	answer_result: QuestionAnswerResult,
 }
 
 impl QuestionHandler {
 	pub(crate) async fn handle_all(&mut self) {
-		self.command().await;
-		self.next();
-		self.command().await;
-		self.next();
-		self.command().await;
-		self.next();
-		self.command().await;
-		self.next();
-		self.command().await;
+		self.send_question().await;
+		self.get_question_response().await;
+		self.send_correct_answer().await;
+		self.send_player_answers().await;
+		self.send_updated_state().await;
 	}
 
 	pub(crate) async fn new(
@@ -97,98 +59,88 @@ impl QuestionHandler {
 		QuestionHandler {
 			game,
 			question_handler_type,
-			state: QuestionHandlerPhases::SendQuestion,
 			players,
 			answer_result: QuestionAnswerResult::new(),
 		}
 	}
 
-	pub(crate) fn next(&mut self) {
-		self.state.next();
+	pub(super) async fn send_question(&self) {
+		match self.question_handler_type {
+			QuestionHandlerType::AreaConquer => {
+				self.game.write().await.state.game_state.phase = 4;
+			}
+			QuestionHandlerType::Battle => {
+				self.game.write().await.state.game_state.phase = 4;
+			}
+		}
+		let q = Question::emulate();
+		let state = self.game.read().await.state.clone();
+		// todo do actual work
+		self.game
+			.send_xml_channel(
+				&self.players[0],
+				quick_xml::se::to_string(&QuestionStageResponse::new_question(state, q)).unwrap(),
+			)
+			.await
+			.unwrap();
+		self.game.wait_for_all_players(&self.players).await;
 	}
 
-	pub(crate) async fn command(&mut self) {
-		match self.state {
-			QuestionHandlerPhases::SendQuestion => {
-				match self.question_handler_type {
-					QuestionHandlerType::AreaConquer => {
-						self.game.write().await.state.game_state.phase = 4;
-					}
-					QuestionHandlerType::Battle => {
-						self.game.write().await.state.game_state.phase = 4;
-					}
+	async fn get_question_response(&mut self) {
+		for player in self.players.iter().filter(|x| x.is_player()) {
+			match self.game.recv_command_channel(player).await.unwrap() {
+				ServerCommand::QuestionAnswer(ans) => {
+					self.answer_result.set_player(player.rel_id, ans);
 				}
-				let q = Question::emulate();
-				let state = self.game.read().await.state.clone();
-				// todo do actual work
-				self.game
-					.send_xml_channel(
-						&self.players[0],
-						quick_xml::se::to_string(&QuestionStageResponse::new_question(state, q))
-							.unwrap(),
-					)
-					.await
-					.unwrap();
-				self.game.wait_for_all_players(&self.players).await;
-			}
-			QuestionHandlerPhases::GetQuestionResponse => {
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					match self.game.recv_command_channel(player).await.unwrap() {
-						ServerCommand::QuestionAnswer(ans) => {
-							self.answer_result.set_player(player.rel_id, ans);
-						}
-						_ => {
-							warn!("Invalid command");
-						}
-					}
-				}
-				for player in self.players.iter().filter(|x| !x.is_player()) {
-					let mut rng = StdRng::from_entropy();
-					let random_answer: u8 = rng.gen_range(1..=4);
-					self.answer_result.set_player(player.rel_id, random_answer);
+				_ => {
+					warn!("Invalid command");
 				}
 			}
-			QuestionHandlerPhases::SendCorrectAnswer => {
-				info!("todo but not necessary");
+		}
+		for player in self.players.iter().filter(|x| !x.is_player()) {
+			let mut rng = StdRng::from_entropy();
+			let random_answer: u8 = rng.gen_range(1..=4);
+			self.answer_result.set_player(player.rel_id, random_answer);
+		}
+	}
+
+	async fn send_correct_answer(&self) {
+		info!("todo but not necessary");
+		self.game.write().await.state.game_state.phase += 1;
+	}
+
+	async fn send_player_answers(&mut self) {
+		self.answer_result.good = Some(1);
+		match self.question_handler_type {
+			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase += 1;
 			}
-			QuestionHandlerPhases::SendPlayerAnswers => {
-				self.answer_result.good = Some(1);
-				match self.question_handler_type {
-					QuestionHandlerType::AreaConquer => {
-						self.game.write().await.state.game_state.phase += 1;
-					}
-					QuestionHandlerType::Battle => {
-						self.game.write().await.state.game_state.phase += 1;
-					}
-				}
-				let state = self.game.read().await.state.clone();
-				for player in self.players.iter().filter(|x| x.is_player()) {
-					self.game
-						.send_xml_channel(
-							player,
-							quick_xml::se::to_string(&QuestionStageResponse::new_answer_result(
-								state.clone(),
-								self.answer_result.clone(),
-							))
-							.unwrap(),
-						)
-						.await
-						.unwrap();
-				}
-				self.game.wait_for_all_players(&self.players).await;
+			QuestionHandlerType::Battle => {
+				self.game.write().await.state.game_state.phase += 1;
 			}
-			QuestionHandlerPhases::SendUpdatedState => {
-				match self.question_handler_type {
-					QuestionHandlerType::AreaConquer => {
-						self.game.write().await.state.game_state.phase += 1;
-					}
-					QuestionHandlerType::Battle => {
-						self.game.write().await.state.game_state.phase = 21;
-					}
-				}
-				let selection = self.game.read().await.state.selection.clone();
-				let mut score_increase = Vec::with_capacity(3);
+		}
+		let state = self.game.read().await.state.clone();
+		for player in self.players.iter().filter(|x| x.is_player()) {
+			self.game
+				.send_xml_channel(
+					player,
+					quick_xml::se::to_string(&QuestionStageResponse::new_answer_result(
+						state.clone(),
+						self.answer_result.clone(),
+					))
+					.unwrap(),
+				)
+				.await
+				.unwrap();
+		}
+		self.game.wait_for_all_players(&self.players).await;
+	}
+
+	async fn send_updated_state(&self) {
+		let selection = self.game.read().await.state.selection.clone();
+		match self.question_handler_type {
+			QuestionHandlerType::AreaConquer => {
+				self.game.write().await.state.game_state.phase += 1;
 				for player in self.players.clone() {
 					if self.answer_result.is_player_correct(player.rel_id) {
 						Area::area_occupied(
@@ -198,64 +150,64 @@ impl QuestionHandler {
 						)
 						.await
 						.unwrap();
-						score_increase.push(200);
+						self.game
+							.write()
+							.await
+							.state
+							.players_points
+							.change_player_points(&player.rel_id, 200);
 					} else {
-						self.game.write().await.state.available_areas.push_county(
-							selection.get_player_county(player.rel_id).unwrap().clone(),
-						);
-						score_increase.push(0);
+						self.game
+							.write()
+							.await
+							.state
+							.available_areas
+							.push_county(*selection.get_player_county(player.rel_id).unwrap());
 					}
 				}
-				TriviadorState::modify_scores(self.game.arc_clone(), score_increase)
-					.await
-					.unwrap();
-				self.game.send_to_all_players(&self.players).await;
-				self.game.write().await.state.selection.clear();
+			}
+			QuestionHandlerType::Battle => {
+				let mut write_game = self.game.write().await;
+				write_game.state.game_state.phase = 21;
+				for player in self.players.clone() {
+					if self.answer_result.is_player_correct(player.rel_id) {
+						write_game
+							.state
+							.players_points
+							.change_player_points(&player.rel_id, 200);
+					} else {
+						write_game
+							.state
+							.players_points
+							.change_player_points(&player.rel_id, -200);
+					}
+				}
 			}
 		}
+
+		self.game.send_to_all_players(&self.players).await;
 	}
 }
+
+// Fill: 3,1,1
+// Battle: 4,1,10
+// SendTipRequest,
+// GetTipResponse,
+// Fill: 3,1,3
+// Battle: 4,1,12
+// SendPlayerAnswers,
+// Fill: 3,1,6
+// Battle: 4,1,21
+// SendUpdatedState,
 
 pub(crate) enum TipHandlerType {
 	Fill,
 	Battle,
 }
 
-enum TipHandlerPhases {
-	// Fill: 3,1,1
-	// Battle: 4,1,10
-	SendTipRequest,
-	GetTipResponse,
-	// Fill: 3,1,3
-	// Battle: 4,1,12
-	SendPlayerAnswers,
-	// Fill: 3,1,6
-	// Battle: 4,1,21
-	SendUpdatedState,
-}
-
-impl TipHandlerPhases {
-	fn new() -> TipHandlerPhases {
-		TipHandlerPhases::SendTipRequest
-	}
-
-	fn next(&mut self) {
-		match self {
-			TipHandlerPhases::SendTipRequest => *self = TipHandlerPhases::GetTipResponse,
-			TipHandlerPhases::GetTipResponse => *self = TipHandlerPhases::SendPlayerAnswers,
-			TipHandlerPhases::SendPlayerAnswers => *self = TipHandlerPhases::SendUpdatedState,
-			TipHandlerPhases::SendUpdatedState => {
-				warn!("Overstepped the phases, returning to SendTipRequest");
-				*self = TipHandlerPhases::SendTipRequest
-			}
-		}
-	}
-}
-
 pub(crate) struct TipHandler {
 	game: SharedTrivGame,
 	tip_handler_type: TipHandlerType,
-	state: TipHandlerPhases,
 	players: Vec<SGamePlayer>,
 	tip_info: TipInfo,
 }
@@ -269,14 +221,9 @@ impl TipHandler {
 		TipHandler {
 			game,
 			tip_handler_type: stage_type,
-			state: TipHandlerPhases::SendTipRequest,
 			players,
 			tip_info: TipInfo::new(),
 		}
-	}
-
-	pub(crate) fn next(&mut self) {
-		self.state.next();
 	}
 
 	pub(crate) async fn handle_all(&mut self) -> SGamePlayer {
@@ -296,13 +243,16 @@ impl TipHandler {
 		}
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
-		self.game
-			.send_xml_channel(
-				&self.players[0],
-				quick_xml::se::to_string(&TipStageResponse::new_tip(state, q)).unwrap(),
-			)
-			.await
-			.unwrap();
+		for player in self.players.iter().filter(|x| x.is_player()) {
+			self.game
+				.send_xml_channel(
+					player,
+					quick_xml::se::to_string(&TipStageResponse::new_tip(state.clone(), q.clone()))
+						.unwrap(),
+				)
+				.await
+				.unwrap();
+		}
 		self.game.wait_for_all_players(&self.players).await;
 	}
 
@@ -356,7 +306,6 @@ impl TipHandler {
 	async fn send_player_answers(&self) -> SGamePlayer {
 		// todo placeholder
 		let good = 1;
-		println!("{:?}", self.tip_info);
 		// both need to be increased by 2
 		self.game.write().await.state.game_state.phase += 2;
 

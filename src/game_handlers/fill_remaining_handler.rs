@@ -1,14 +1,9 @@
-use std::time::Duration;
-
-use fred::clients::RedisPool;
-use fred::prelude::KeysInterface;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
 use crate::game_handlers::question_handler::{TipHandler, TipHandlerType};
 use crate::game_handlers::s_game::SGamePlayer;
-use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::cmd::Cmd;
@@ -17,54 +12,21 @@ use crate::triviador::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerNames;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
-use crate::triviador::selection::Selection;
-use crate::triviador::triviador_state::TriviadorState;
 use crate::users::ServerCommand;
 
-#[derive(PartialEq, Clone)]
-enum FillRemainingHandlerPhases {
-	// invisible
-	Setup,
-	// 3,1,0
-	Announcement,
-	// 3,1,1
-	TipQuestion,
-	// 3,1,4
-	AskDesiredArea,
-	// 3,1,6
-	DesiredAreaResponse,
-}
-
-impl FillRemainingHandlerPhases {
-	fn new() -> FillRemainingHandlerPhases {
-		FillRemainingHandlerPhases::Announcement
-	}
-
-	fn next(&mut self) {
-		match self {
-			FillRemainingHandlerPhases::Setup => *self = FillRemainingHandlerPhases::Announcement,
-			FillRemainingHandlerPhases::Announcement => {
-				*self = FillRemainingHandlerPhases::TipQuestion
-			}
-			FillRemainingHandlerPhases::TipQuestion => {
-				*self = FillRemainingHandlerPhases::AskDesiredArea
-			}
-			FillRemainingHandlerPhases::AskDesiredArea => {
-				*self = FillRemainingHandlerPhases::DesiredAreaResponse
-			}
-			FillRemainingHandlerPhases::DesiredAreaResponse => {
-				*self = {
-					error!("Overstepped the phases, returning to AskDesiredArea");
-					FillRemainingHandlerPhases::TipQuestion
-				}
-			}
-		}
-	}
-}
+// invisible
+// Setup
+// 3,1,0
+// Announcement,
+// 3,1,1
+// TipQuestion,
+// 3,1,4
+// AskDesiredArea,
+// 3,1,6
+// DesiredAreaResponse,
 
 pub(crate) struct FillRemainingHandler {
 	game: SharedTrivGame,
-	state: FillRemainingHandlerPhases,
 	players: Vec<SGamePlayer>,
 	winner: Option<SGamePlayer>,
 }
@@ -73,25 +35,21 @@ impl FillRemainingHandler {
 	pub(crate) fn new(game: SharedTrivGame, players: Vec<SGamePlayer>) -> FillRemainingHandler {
 		FillRemainingHandler {
 			game,
-			state: FillRemainingHandlerPhases::Setup,
 			players,
 			winner: None,
 		}
 	}
-
-	pub(crate) fn next(&mut self) {
-		self.state.next();
+	pub(super) async fn setup(&self) {
+		let mut write_game = self.game.write().await;
+		write_game.state.game_state = GameState {
+			state: 3,
+			round: 1,
+			phase: 0,
+		};
+		write_game.state.round_info.mini_phase_num = 0;
 	}
 
-	pub(crate) fn new_round_pick(&mut self) {
-		self.state = FillRemainingHandlerPhases::Announcement;
-	}
-
-	pub(crate) async fn setup(&self) {
-		self.fill_setup().await;
-	}
-
-	pub(crate) async fn announcement(&mut self) {
+	pub(super) async fn announcement(&self) {
 		self.game.write().await.state.game_state.phase = 0;
 		self.game.send_to_all_players(&self.players).await;
 		trace!("Fill remaining announcement waiting");
@@ -99,7 +57,7 @@ impl FillRemainingHandler {
 		trace!("Fill remaining announcement game ready");
 	}
 
-	pub(crate) async fn tip_question(&mut self) {
+	pub(super) async fn tip_question(&mut self) {
 		let mut th = TipHandler::new(
 			self.game.arc_clone(),
 			TipHandlerType::Fill,
@@ -114,12 +72,21 @@ impl FillRemainingHandler {
 			.await;
 	}
 
-	pub(crate) async fn ask_desired_area(&mut self) {
+	pub(super) async fn ask_desired_area(&self) {
 		let active_player = self.winner.clone().unwrap();
 		self.game.write().await.state.active_player = Some(active_player.clone());
-		self.fill_area_select_backend(active_player.rel_id)
-			.await
-			.unwrap();
+		let mut game_writer = self.game.write().await;
+		game_writer.state.game_state.phase = 4;
+
+		let ri = game_writer.state.round_info.clone();
+
+		game_writer.state.round_info = RoundInfo {
+			mini_phase_num: ri.mini_phase_num,
+			rel_player_id: active_player.rel_id,
+			attacked_player: None,
+		};
+		drop(game_writer);
+
 		if active_player.is_player() {
 			// let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
 			let available = self.game.read().await.state.available_areas.clone();
@@ -134,7 +101,7 @@ impl FillRemainingHandler {
 		self.game.wait_for_all_players(&self.players).await;
 	}
 
-	pub(crate) async fn desired_area_response(&mut self) {
+	pub(super) async fn desired_area_response(&self) {
 		self.game.write().await.state.game_state.phase = 6;
 		let active_player = self.winner.clone().unwrap();
 		self.game.write().await.state.active_player = Some(active_player.clone());
@@ -158,14 +125,10 @@ impl FillRemainingHandler {
 			let areas = self.game.read().await.state.areas_info.clone();
 			let selection = self.game.read().await.state.selection.clone();
 			let available_areas =
-				AvailableAreas::get_limited_available(&areas, &selection, active_player.rel_id);
+				AvailableAreas::get_conquerable_areas(&areas, &selection, active_player.rel_id);
 
 			let mut rng = StdRng::from_entropy();
-			let random_area = available_areas
-				.get_counties()
-				.into_iter()
-				.choose(&mut rng)
-				.unwrap();
+			let random_area = available_areas.counties().iter().choose(&mut rng).unwrap();
 			self.new_area_selected(*random_area as u8, active_player.rel_id)
 				.await
 				.unwrap();
@@ -175,37 +138,7 @@ impl FillRemainingHandler {
 		self.game.write().await.state.round_info.mini_phase_num += 1;
 	}
 
-	async fn fill_setup(&self) {
-		let mut write_game = self.game.write().await;
-		write_game.state.game_state = GameState {
-			state: 3,
-			round: 1,
-			phase: 0,
-		};
-		write_game.state.round_info.mini_phase_num = 0;
-	}
-
-	async fn fill_area_select_backend(&self, winner_rel_id: u8) -> Result<(), anyhow::Error> {
-		let mut game = self.game.write().await;
-		game.state.game_state.phase = 4;
-
-		let ri = game.state.round_info.clone();
-
-		game.state.round_info = RoundInfo {
-			mini_phase_num: ri.mini_phase_num,
-			rel_player_id: winner_rel_id,
-			attacked_player: None,
-		};
-
-		Ok(())
-	}
-
-	pub async fn area_selected_stage(&self) {
-		// sets phase to 3
-		self.game.write().await.state.game_state.phase += 2;
-	}
-
-	pub async fn new_area_selected(
+	async fn new_area_selected(
 		&self,
 		selected_area: u8,
 		game_player_id: u8,

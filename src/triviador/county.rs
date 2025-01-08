@@ -3,12 +3,10 @@ use std::fmt;
 use std::str::FromStr;
 
 use anyhow::bail;
-use serde::{Serialize, Serializer};
+use serde::Serialize;
+use tracing::error;
 
-use crate::triviador::available_area::AvailableAreas;
-use crate::utils::to_hex_with_length;
-
-#[derive(Serialize, Clone, Copy, Eq, PartialEq, Hash, Debug)]
+#[derive(Serialize, Clone, Copy, Eq, PartialEq, PartialOrd, Hash, Debug)]
 // todo make this country based
 pub enum County {
 	NoResponse = 0,            // if nothing is selected
@@ -39,6 +37,7 @@ impl County {
 		match self {
 			County::NoResponse => {
 				// todo check this out
+				error!("NoResponse county has NO neighbours");
 			}
 			County::Pest => {
 				hs.insert(County::Nograd);
@@ -231,64 +230,5 @@ impl FromStr for County {
 			"Vas" => Ok(County::Vas),
 			_ => bail!("Invalid county name"),
 		}
-	}
-}
-pub(crate) fn available_serialize<S>(counties: &AvailableAreas, s: S) -> Result<S::Ok, S::Error>
-where
-	S: Serializer,
-{
-	if counties.get_counties().is_empty() {
-		return s.serialize_str("000000");
-	};
-	// there might be more efficient methods than copying but this works for now
-	let res = counties
-		.get_counties()
-		.iter()
-		.map(|&county| county as i32)
-		.collect();
-	s.serialize_str(&encode_available_areas(res))
-}
-pub fn decode_available_areas(available: i32) -> Vec<i32> {
-	let mut res = Vec::new();
-	for i in 1..=30 {
-		if (available & (1 << (i - 1))) != 0 {
-			res.push(i);
-		}
-	}
-	res
-}
-
-pub fn encode_available_areas(areas: Vec<i32>) -> String {
-	let mut available: i32 = 0;
-
-	for &area in &areas {
-		if (1..=30).contains(&area) {
-			available |= 1 << (area - 1);
-		}
-	}
-
-	// Convert the integer to a byte array (in big-endian format)
-	let available_bytes = available.to_be_bytes();
-
-	to_hex_with_length(&available_bytes, 6)
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	#[test]
-	fn county_serialize() {
-		let decoded = decode_available_areas(i32::from_str_radix("07FFFF", 16).unwrap());
-		assert_eq!(
-			decoded,
-			vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
-		);
-		assert_eq!(
-			encode_available_areas(vec![
-				1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17, 18, 19
-			],),
-			"077FFF"
-		)
 	}
 }

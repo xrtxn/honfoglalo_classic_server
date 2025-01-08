@@ -2,6 +2,7 @@ use serde::{Serialize, Serializer};
 
 #[derive(Debug, Clone)]
 pub struct RoundInfo {
+	// lpnum
 	pub mini_phase_num: u8,
 	pub rel_player_id: u8,
 	pub attacked_player: Option<u8>,

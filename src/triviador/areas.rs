@@ -1,12 +1,12 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 
 use anyhow::bail;
 use serde::{Serialize, Serializer};
 use tracing::warn;
 
-use super::game::{SharedTrivGame, TriviadorGame};
-use crate::triviador::county::County;
-use crate::utils::split_string_n;
+use super::county::County;
+use super::game::SharedTrivGame;
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
 pub enum AreaValue {
@@ -25,23 +25,6 @@ pub struct Area {
 }
 
 impl Area {
-	pub fn new() -> HashMap<County, Area> {
-		let mut areas = HashMap::new();
-		for i in 1..=19 {
-			if let Ok(county) = County::try_from(i) {
-				areas.insert(
-					county,
-					Area {
-						owner: 0,
-						is_fortress: false,
-						value: AreaValue::Unoccupied,
-					},
-				);
-			}
-		}
-		areas
-	}
-
 	pub fn serialize_to_hex(&self) -> String {
 		let mut ac = self.owner;
 		let vc = (self.value.clone() as u8) << 4;
@@ -52,52 +35,6 @@ impl Area {
 		}
 
 		format!("{:02x}", ac)
-	}
-
-	pub fn deserialize_from_hex(hex: &str) -> Result<Self, anyhow::Error> {
-		let byte = u8::from_str_radix(hex, 16)?;
-		let owner = byte & 0x0F;
-		let value = (byte >> 4) & 0x07;
-		let is_fortress = (byte & 0x80) != 0;
-		let value = AreaValue::try_from(value)?;
-
-		Ok(Area {
-			owner,
-			is_fortress,
-			value,
-		})
-	}
-
-	pub fn deserialize_full(s: String) -> Result<HashMap<County, Area>, anyhow::Error> {
-		let vals = split_string_n(&s, 2);
-		let mut rest: HashMap<County, Area> = HashMap::with_capacity(19);
-		for (i, county_str) in vals.iter().enumerate() {
-			rest.insert(
-				// increase by 1 because we don't want the 0 value County
-				County::try_from((i as u8) + 1)?,
-				Area::deserialize_from_hex(county_str)?,
-			);
-		}
-		Ok(rest)
-	}
-
-	pub fn serialize_full(set_counties: &HashMap<County, Area>) -> Result<String, anyhow::Error> {
-		// later this may not be 38 for different countries
-		let mut serialized = String::with_capacity(38);
-		// start from 1 because we don't want the 0 value County
-		for i in 1..20 {
-			let county = County::try_from(i)?;
-			let area = set_counties.get(&county);
-			match area {
-				None => {
-					serialized.push_str("00");
-				}
-				Some(area) => {
-					serialized.push_str(&area.serialize_to_hex());
-				}
-			}
-		}
-		Ok(serialized)
 	}
 
 	pub async fn modify_area(
@@ -145,6 +82,20 @@ impl Area {
 
 		Ok(())
 	}
+
+	fn deserialize_from_hex(hex: &str) -> Result<Area, anyhow::Error> {
+		let byte = u8::from_str_radix(hex, 16)?;
+		let owner = byte & 0x0F;
+		let value = (byte >> 4) & 0x07;
+		let is_fortress = (byte & 0x80) != 0;
+		let value = AreaValue::try_from(value)?;
+
+		Ok(Area {
+			owner,
+			is_fortress,
+			value,
+		})
+	}
 }
 impl Serialize for Area {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -155,14 +106,22 @@ impl Serialize for Area {
 	}
 }
 
-pub(crate) fn areas_full_serializer<S>(
-	counties: &HashMap<County, Area>,
-	s: S,
-) -> Result<S::Ok, S::Error>
-where
-	S: Serializer,
-{
-	s.serialize_str(&Area::serialize_full(counties).unwrap())
+impl FromStr for Area {
+	type Err = anyhow::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let byte = u8::from_str_radix(s, 16)?;
+		let owner = byte & 0x0F;
+		let value = (byte >> 4) & 0x07;
+		let is_fortress = (byte & 0x80) != 0;
+		let value = AreaValue::try_from(value)?;
+
+		Ok(Area {
+			owner,
+			is_fortress,
+			value,
+		})
+	}
 }
 
 impl TryFrom<u8> for AreaValue {
@@ -180,46 +139,90 @@ impl TryFrom<u8> for AreaValue {
 	}
 }
 
+#[derive(PartialEq, Clone, Debug)]
+pub struct Areas(HashMap<County, Area>);
+
+impl Areas {
+	pub(crate) fn new() -> Self {
+		Areas(HashMap::new())
+	}
+
+	pub(crate) fn get_areas(&self) -> &HashMap<County, Area> {
+		&self.0
+	}
+
+	pub(crate) fn insert(&mut self, county: County, area: Area) {
+		self.0.insert(county, area);
+	}
+
+	pub(crate) fn get_area(&self, available_county: &County) -> Option<&Area> {
+		self.0.get(available_county)
+	}
+
+	pub fn serialize(&self) -> Result<String, anyhow::Error> {
+		// later this may not be 38 for different countries
+		let mut serialized = String::with_capacity(38);
+		// start from 1 because we don't want the 0 value County
+		for i in 1..20 {
+			let county = County::try_from(i)?;
+			let area = self.get_area(&county);
+			match area {
+				None => {
+					serialized.push_str("00");
+				}
+				Some(area) => {
+					serialized.push_str(&area.serialize_to_hex());
+				}
+			}
+		}
+		Ok(serialized)
+	}
+
+	pub(crate) fn areas_serializer<S>(counties: &Areas, s: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		s.serialize_str(&counties.serialize().unwrap())
+	}
+}
+
+impl FromStr for Areas {
+	type Err = anyhow::Error;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		let vals = crate::utils::split_string_n(s, 2);
+		let mut rest = Areas::new();
+		for (i, county_str) in vals.iter().enumerate() {
+			rest.insert(
+				// increase by 1 because we don't want the 0 value County
+				County::try_from((i as u8) + 1)?,
+				Area::deserialize_from_hex(county_str)?,
+			);
+		}
+		Ok(rest)
+	}
+}
+
+impl From<Vec<(County, Area)>> for Areas {
+	fn from(counties: Vec<(County, Area)>) -> Self {
+		Areas(HashMap::from_iter(counties))
+	}
+}
+
 #[cfg(test)]
 mod tests {
+	use pretty_assertions::assert_eq;
 	use serde_test::{assert_ser_tokens, Token};
 
 	use super::*;
-	use crate::triviador::game_player_data::PlayerNames;
-
-	#[test]
-	fn area_test() {
-		let area = Area {
-			owner: 1,
-			is_fortress: false,
-			value: AreaValue::_200,
-		};
-
-		assert_ser_tokens(&area, &[Token::String("41")]);
-		assert_eq!(Area::deserialize_from_hex("41").unwrap(), area);
-
-		let area = Area {
-			owner: 3,
-			is_fortress: false,
-			value: AreaValue::_1000,
-		};
-
-		assert_ser_tokens(&area, &[Token::String("13")]);
-		let area = Area {
-			owner: 0,
-			is_fortress: false,
-			value: AreaValue::Unoccupied,
-		};
-
-		assert_ser_tokens(&area, &[Token::String("00")]);
-	}
 
 	#[test]
 	fn full_area_serialize() {
-		let res = Area::serialize_full(&HashMap::from([(
+		let res = Areas::serialize(&Areas::from(vec![(
 			County::SzabolcsSzatmarBereg,
+			// Area::new(PlayerNames::Player3 as u8, false, AreaValue::_1000),
 			Area {
-				owner: PlayerNames::Player3 as u8,
+				owner: 3,
 				is_fortress: false,
 				value: AreaValue::_1000,
 			},
@@ -231,33 +234,63 @@ mod tests {
 	#[test]
 	fn full_area_deserialize() {
 		// todo this may be an invalid string
-		let res =
-			Area::deserialize_full("13434343434342424242434141421112414243".to_string()).unwrap();
+		let res = Areas::from_str("13434343434342424242434141421112414243").unwrap();
 
 		assert_eq!(
-			*res.get(&County::Pest).unwrap(),
+			*res.get_area(&County::Pest).unwrap(),
+			// Area::new(3 as u8, false, AreaValue::_1000)
 			Area {
 				owner: 3,
 				is_fortress: false,
-				value: AreaValue::_1000
+				value: AreaValue::_1000,
 			}
 		);
 
 		assert_eq!(
-			*res.get(&County::SzabolcsSzatmarBereg).unwrap(),
+			*res.get_area(&County::SzabolcsSzatmarBereg).unwrap(),
+			// Area::new(2, false, AreaValue::_1000)
 			Area {
 				owner: 2,
 				is_fortress: false,
-				value: AreaValue::_1000
+				value: AreaValue::_1000,
 			}
 		);
+
 		assert_eq!(
-			*res.get(&County::Baranya).unwrap(),
+			*res.get_area(&County::Baranya).unwrap(),
+			// Area::new(1, false, AreaValue::_200
 			Area {
 				owner: 1,
 				is_fortress: false,
-				value: AreaValue::_200
+				value: AreaValue::_200,
 			}
 		)
+	}
+
+	#[test]
+	fn area_test() {
+		let area = Area {
+			owner: 1,
+			is_fortress: false,
+			value: AreaValue::_200,
+		};
+		assert_ser_tokens(&area, &[Token::String("41")]);
+		assert_eq!(Area::from_str("41").unwrap(), area);
+
+		let area = Area {
+			owner: 3,
+			is_fortress: false,
+			value: AreaValue::_1000,
+		};
+		assert_ser_tokens(&area, &[Token::String("13")]);
+		assert_eq!(Area::from_str("13").unwrap(), area);
+
+		let area = Area {
+			owner: 0,
+			is_fortress: false,
+			value: AreaValue::Unoccupied,
+		};
+		assert_ser_tokens(&area, &[Token::String("00")]);
+		assert_eq!(Area::from_str("00").unwrap(), area);
 	}
 }

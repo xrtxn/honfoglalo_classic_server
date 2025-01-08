@@ -1,17 +1,20 @@
 use serde::Serialize;
 use serde_with::skip_serializing_none;
 
-use super::game::{SharedTrivGame, TriviadorGame};
+use super::game::SharedTrivGame;
 use crate::game_handlers::s_game::SGamePlayer;
 use crate::triviador::available_area::AvailableAreas;
-use crate::triviador::county::available_serialize;
 
 #[skip_serializing_none]
 #[derive(Debug, Serialize, Clone)]
 pub struct Cmd {
 	#[serde(rename = "@CMD")]
 	pub command: String,
-	#[serde(rename = "@AVAILABLE", serialize_with = "available_serialize", skip_serializing_if = "AvailableAreas::is_empty")]
+	#[serde(
+		rename = "@AVAILABLE",
+		serialize_with = "AvailableAreas::available_serialize",
+		skip_serializing_if = "AvailableAreas::is_empty"
+	)]
 	pub available: AvailableAreas,
 	#[serde(rename = "@TO")]
 	// seconds for action
