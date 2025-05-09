@@ -1,13 +1,16 @@
+
+use super::s_game::GamePlayerInfo;
 use crate::app::{ServerCommandChannel, XmlPlayerChannel};
-use crate::game_handlers::s_game::{SGame, SGamePlayer};
-use crate::game_handlers::PlayerType;
-use crate::triviador::game::{PlayerUtils, SharedTrivGame, TriviadorGame};
-use crate::triviador::game_player_data::GamePlayerData;
+use crate::emulator::Emulator;
+use crate::game_handlers::s_game::{SGame, SGamePlayerInfo};
+use crate::triviador::game::{SharedTrivGame, TriviadorGame};
+use crate::triviador::game_player_data::{GamePlayerData, PlayerName};
 use crate::triviador::player_info::PlayerInfo;
 use crate::triviador::triviador_state::GamePlayerChannels;
 
 pub(crate) struct ServerGameHandler {}
 
+// todo I hate this bad code but I have better things to do
 impl ServerGameHandler {
 	pub async fn new_friendly(
 		player_channel: XmlPlayerChannel,
@@ -18,7 +21,7 @@ impl ServerGameHandler {
 			p1_name: "xrtxn".to_string(),
 			p2_name: "null".to_string(),
 			p3_name: "null".to_string(),
-			pd1: GamePlayerData::emu_player(),
+			pd1: GamePlayerData::emulate(),
 			pd2: GamePlayerData::new_bot(),
 			pd3: GamePlayerData::new_bot(),
 			you: "1,2,3".to_string(),
@@ -27,31 +30,43 @@ impl ServerGameHandler {
 			rules: "0,0".to_string(),
 		};
 
-		let game = SharedTrivGame::new(TriviadorGame::new_game(players));
+		let game = SharedTrivGame::new(TriviadorGame::new_game(players.clone()));
 		// todo check
-		let players = game.read().await.players.clone().unwrap();
-		let server_game_players = vec![
-			SGamePlayer::new(PlayerType::Player, players.pd1.id, 1),
-			SGamePlayer::new(PlayerType::Bot, players.pd2.id, 2),
-			SGamePlayer::new(PlayerType::Bot, players.pd3.id, 3),
-		];
+		let mut server_game_players = GamePlayerInfo::new();
+		if players.pd1.id == -1 {
+			server_game_players.add(PlayerName::Player1, SGamePlayerInfo::new(false));
+		} else {
+			server_game_players.add(PlayerName::Player1, SGamePlayerInfo::new(true));
+		}
+		if players.pd2.id == -1 {
+			server_game_players.add(PlayerName::Player2, SGamePlayerInfo::new(false));
+		} else {
+			server_game_players.add(PlayerName::Player2, SGamePlayerInfo::new(true));
+		}
+		if players.pd3.id == -1 {
+			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(false));
+		} else {
+			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(true));
+		}
 
 		// initial setup
-		let mut server_game = SGame::new(game.arc_clone(), server_game_players);
+		let mut server_game = SGame::new(game.arc_clone(), server_game_players.clone());
 
 		let channels = GamePlayerChannels {
 			xml_channel: player_channel.clone(),
 			command_channel: command_channel.clone(),
 		};
 
-		game.write().await.utils.insert(
-			server_game.players[0].clone(),
-			PlayerUtils {
-				cmd: None,
-				channels: Some(channels),
-			},
-		);
-
+		for (player, info) in server_game_players.0.iter() {
+			game.write().await.utils.add(player.clone(), info.clone());
+			if info.is_player() {
+				game.write()
+					.await
+					.utils
+					.get_player_mut(player)
+					.set_channels(Some(channels.clone()));
+			}
+		}
 		server_game.handle_all().await;
 	}
 }

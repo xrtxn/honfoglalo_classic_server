@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
-use serde::Serializer;
-use tracing::info;
+use serde::{Serialize, Serializer};
 
 use super::areas::Areas;
+use super::game_player_data::PlayerName;
 use super::selection::Selection;
 use crate::triviador::county::County;
 
@@ -24,14 +24,14 @@ impl AvailableAreas {
 	}
 
 	/// Separates the areas into two sets, one for the player and one for the other players
-	fn separate_areas(areas: &Areas, player_id: u8) -> (AvailableAreas, AvailableAreas) {
+	fn separate_areas(areas: &Areas, player_id: PlayerName) -> (AvailableAreas, AvailableAreas) {
 		let mut player_areas = AvailableAreas::new();
 		let mut other_areas = AvailableAreas::new();
 
 		for (county, area) in areas.get_areas() {
 			if area.owner == player_id {
 				player_areas.0.insert(*county);
-			} else if area.owner != 0 {
+			} else if area.owner != PlayerName::Nobody {
 				other_areas.0.insert(*county);
 			}
 		}
@@ -56,7 +56,7 @@ impl AvailableAreas {
 	fn filter_occupied_areas(&mut self, areas: &Areas) {
 		self.0.retain(|available_county| {
 			if let Some(area) = areas.get_area(available_county) {
-				area.owner == 0
+				area.owner == PlayerName::Nobody
 			} else {
 				true
 			}
@@ -64,8 +64,8 @@ impl AvailableAreas {
 	}
 
 	fn filter_selected_areas(&mut self, selection: &Selection) {
-		for player in 1..=3 {
-			if let Some(county) = selection.get_player_county(player) {
+		for player in PlayerName::all() {
+			if let Some(county) = selection.get_player_county(&player) {
 				if self.0.contains(county) {
 					self.0.remove(county);
 				}
@@ -73,7 +73,7 @@ impl AvailableAreas {
 		}
 	}
 
-	fn filter_player_areas(&mut self, areas: &Areas, rel_id: u8) {
+	fn filter_player_areas(&mut self, areas: &Areas, rel_id: PlayerName) {
 		self.0.retain(|county| {
 			if let Some(area) = areas.get_area(county) {
 				area.owner != rel_id
@@ -83,7 +83,7 @@ impl AvailableAreas {
 		});
 	}
 
-	pub(crate) fn get_base_areas(areas: &Areas, rel_id: u8) -> AvailableAreas {
+	pub(crate) fn get_base_areas(areas: &Areas, rel_id: PlayerName) -> AvailableAreas {
 		let (_, other_areas) = Self::separate_areas(areas, rel_id);
 		let excluded = Self::get_neighbouring_areas(&other_areas);
 		let mut player_areas = Self::all_counties();
@@ -95,7 +95,7 @@ impl AvailableAreas {
 	pub(crate) fn get_conquerable_areas(
 		areas: &Areas,
 		selection: &Selection,
-		rel_player_id: u8,
+		rel_player_id: PlayerName,
 	) -> AvailableAreas {
 		let (mut player_areas, _) = Self::separate_areas(areas, rel_player_id);
 		player_areas = Self::get_neighbouring_areas(&player_areas);
@@ -114,7 +114,7 @@ impl AvailableAreas {
 		player_areas
 	}
 
-	pub(crate) fn get_attackable_areas(areas: &Areas, rel_id: u8) -> AvailableAreas {
+	pub(crate) fn get_attackable_areas(areas: &Areas, rel_id: PlayerName) -> AvailableAreas {
 		let (player_areas, _) = Self::separate_areas(areas, rel_id);
 		let mut neighbouring = Self::get_neighbouring_areas(&player_areas);
 		// remove player areas
@@ -155,24 +155,7 @@ impl AvailableAreas {
 		]))
 	}
 
-	pub(crate) fn available_serialize<S>(counties: &AvailableAreas, s: S) -> Result<S::Ok, S::Error>
-	where
-		S: Serializer,
-	{
-		if counties.counties().is_empty() {
-			return s.serialize_str("000000");
-		};
-		// there might be more efficient methods than copying but this works for now
-		let res = counties
-			.counties()
-			.iter()
-			.map(|&county| county as i32)
-			.collect();
-		s.serialize_str(&Self::encode_available_areas(res))
-	}
-
 	pub fn encode_available_areas(areas: Vec<i32>) -> String {
-		info!("Encoding areas: {:?}", areas.clone());
 		let mut available: i32 = 0;
 
 		for &area in &areas {
@@ -194,6 +177,24 @@ impl From<Vec<County>> for AvailableAreas {
 	}
 }
 
+impl Serialize for AvailableAreas {
+	fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		if self.counties().is_empty() {
+			return s.serialize_str("000000");
+		};
+		// there might be more efficient methods than copying but this works for now
+		let res = self
+			.counties()
+			.iter()
+			.map(|&county| county as i32)
+			.collect();
+		s.serialize_str(&Self::encode_available_areas(res))
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use std::str::FromStr;
@@ -201,7 +202,7 @@ mod tests {
 	use pretty_assertions::assert_eq;
 
 	use super::*;
-	use crate::triviador::game_player_data::PlayerNames;
+	use crate::triviador::game_player_data::PlayerName;
 
 	pub fn decode_available_areas(available: i32) -> Vec<i32> {
 		let mut res = Vec::new();
@@ -220,13 +221,14 @@ mod tests {
 
 		let mut selection = Selection::new();
 
-		let available = AvailableAreas::get_conquerable_areas(&areas, &selection, 1);
+		let available =
+			AvailableAreas::get_conquerable_areas(&areas, &selection, PlayerName::Player1);
 
 		assert_eq!(available.0.len(), 2);
 		assert!(available.0.contains(&County::Borsod));
 		assert!(available.0.contains(&County::HajduBihar));
 
-		let p2_available = AvailableAreas::get_base_areas(&areas, 2);
+		let p2_available = AvailableAreas::get_base_areas(&areas, PlayerName::Player2);
 
 		assert_eq!(p2_available.0.len(), 16);
 		assert!(!p2_available.0.contains(&County::SzabolcsSzatmarBereg));
@@ -234,8 +236,9 @@ mod tests {
 		assert!(!p2_available.0.contains(&County::HajduBihar));
 
 		let areas = Areas::from_str("00001100000000000000000000000000000000").unwrap();
-		selection.add_selection(PlayerNames::Player2, County::SzabolcsSzatmarBereg);
-		let p2_available = AvailableAreas::get_conquerable_areas(&areas, &selection, 2);
+		selection.add_selection(PlayerName::Player2, County::SzabolcsSzatmarBereg);
+		let p2_available =
+			AvailableAreas::get_conquerable_areas(&areas, &selection, PlayerName::Player2);
 		assert_eq!(p2_available.0.len(), 17);
 		assert!(!p2_available.0.contains(&County::Heves));
 		// because it is selected
@@ -246,7 +249,7 @@ mod tests {
 	fn separate_areas() {
 		let areas = Areas::from_str("11000000000000120000000000130000000000").unwrap();
 
-		let sep = AvailableAreas::separate_areas(&areas, 1);
+		let sep = AvailableAreas::separate_areas(&areas, PlayerName::Player1);
 
 		assert_eq!(sep.0, AvailableAreas::from(vec![County::Pest]));
 		assert_eq!(
@@ -302,7 +305,7 @@ mod tests {
 		let areas = Areas::from_str("11414241414142124342134342424243414343").unwrap();
 		// let player_areas = AvailableAreas::from(vec![County::Pest]);
 
-		let filtered = AvailableAreas::get_attackable_areas(&areas, 1);
+		let filtered = AvailableAreas::get_attackable_areas(&areas, PlayerName::Player1);
 
 		assert!(filtered.counties().contains(&County::Heves));
 		assert!(filtered.counties().contains(&County::Borsod));
@@ -324,9 +327,18 @@ mod tests {
 	fn deserializer() {
 		let areas = Areas::from_str("11000000000000120000000000130000000000").unwrap();
 
-		assert_eq!(areas.get_area(&County::Pest).unwrap().owner, 1);
-		assert_eq!(areas.get_area(&County::Borsod).unwrap().owner, 2);
-		assert_eq!(areas.get_area(&County::Veszprem).unwrap().owner, 3);
+		assert_eq!(
+			areas.get_area(&County::Pest).unwrap().owner,
+			PlayerName::Player1
+		);
+		assert_eq!(
+			areas.get_area(&County::Borsod).unwrap().owner,
+			PlayerName::Player2
+		);
+		assert_eq!(
+			areas.get_area(&County::Veszprem).unwrap().owner,
+			PlayerName::Player3
+		);
 	}
 
 	#[test]

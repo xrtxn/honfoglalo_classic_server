@@ -7,6 +7,7 @@ use tracing::warn;
 
 use super::county::County;
 use super::game::SharedTrivGame;
+use super::game_player_data::PlayerName;
 
 #[derive(Serialize, Clone, PartialEq, Debug)]
 pub enum AreaValue {
@@ -19,14 +20,14 @@ pub enum AreaValue {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Area {
-	pub(crate) owner: u8,
+	pub(crate) owner: PlayerName,
 	is_fortress: bool,
 	value: AreaValue,
 }
 
 impl Area {
 	pub fn serialize_to_hex(&self) -> String {
-		let mut ac = self.owner;
+		let mut ac = self.owner as u8;
 		let vc = (self.value.clone() as u8) << 4;
 		ac += vc;
 
@@ -50,13 +51,13 @@ impl Area {
 		Ok(None)
 	}
 
-	pub async fn base_selected(
+	pub(crate) async fn base_selected(
 		game: SharedTrivGame,
-		game_player_id: u8,
+		player: PlayerName,
 		county: County,
 	) -> Result<(), anyhow::Error> {
 		let base = Self {
-			owner: game_player_id,
+			owner: player,
 			is_fortress: false,
 			value: AreaValue::_1000,
 		};
@@ -64,9 +65,9 @@ impl Area {
 		Ok(())
 	}
 
-	pub async fn area_occupied(
+	pub(crate) async fn area_occupied(
 		game: SharedTrivGame,
-		rel_id: u8,
+		rel_id: PlayerName,
 		county: Option<County>,
 	) -> Result<(), anyhow::Error> {
 		if let Some(county) = county {
@@ -91,7 +92,7 @@ impl Area {
 		let value = AreaValue::try_from(value)?;
 
 		Ok(Area {
-			owner,
+			owner: PlayerName::from(owner),
 			is_fortress,
 			value,
 		})
@@ -110,17 +111,7 @@ impl FromStr for Area {
 	type Err = anyhow::Error;
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		let byte = u8::from_str_radix(s, 16)?;
-		let owner = byte & 0x0F;
-		let value = (byte >> 4) & 0x07;
-		let is_fortress = (byte & 0x80) != 0;
-		let value = AreaValue::try_from(value)?;
-
-		Ok(Area {
-			owner,
-			is_fortress,
-			value,
-		})
+		Area::deserialize_from_hex(s)
 	}
 }
 
@@ -159,12 +150,12 @@ impl Areas {
 		self.0.get(available_county)
 	}
 
-	pub fn serialize(&self) -> Result<String, anyhow::Error> {
+	pub fn serialize(&self) -> String {
 		// later this may not be 38 for different countries
 		let mut serialized = String::with_capacity(38);
 		// start from 1 because we don't want the 0 value County
-		for i in 1..20 {
-			let county = County::try_from(i)?;
+		for i in 1..=19 {
+			let county = County::try_from(i).unwrap();
 			let area = self.get_area(&county);
 			match area {
 				None => {
@@ -175,14 +166,13 @@ impl Areas {
 				}
 			}
 		}
-		Ok(serialized)
+		serialized
 	}
+}
 
-	pub(crate) fn areas_serializer<S>(counties: &Areas, s: S) -> Result<S::Ok, S::Error>
-	where
-		S: Serializer,
-	{
-		s.serialize_str(&counties.serialize().unwrap())
+impl From<Areas> for String {
+	fn from(value: Areas) -> Self {
+		value.serialize()
 	}
 }
 
@@ -209,6 +199,15 @@ impl From<Vec<(County, Area)>> for Areas {
 	}
 }
 
+impl Serialize for Areas {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		serializer.serialize_str(self.serialize().as_str())
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use pretty_assertions::assert_eq;
@@ -218,16 +217,15 @@ mod tests {
 
 	#[test]
 	fn full_area_serialize() {
-		let res = Areas::serialize(&Areas::from(vec![(
+		let areas = Areas::from(vec![(
 			County::SzabolcsSzatmarBereg,
-			// Area::new(PlayerNames::Player3 as u8, false, AreaValue::_1000),
 			Area {
-				owner: 3,
+				owner: PlayerName::Player3,
 				is_fortress: false,
 				value: AreaValue::_1000,
 			},
-		)]))
-		.unwrap();
+		)]);
+		let res: String = areas.into();
 		assert_eq!(res, "00000000000000000000000000000013000000");
 	}
 
@@ -240,7 +238,7 @@ mod tests {
 			*res.get_area(&County::Pest).unwrap(),
 			// Area::new(3 as u8, false, AreaValue::_1000)
 			Area {
-				owner: 3,
+				owner: PlayerName::Player3,
 				is_fortress: false,
 				value: AreaValue::_1000,
 			}
@@ -250,7 +248,7 @@ mod tests {
 			*res.get_area(&County::SzabolcsSzatmarBereg).unwrap(),
 			// Area::new(2, false, AreaValue::_1000)
 			Area {
-				owner: 2,
+				owner: PlayerName::Player2,
 				is_fortress: false,
 				value: AreaValue::_1000,
 			}
@@ -260,7 +258,7 @@ mod tests {
 			*res.get_area(&County::Baranya).unwrap(),
 			// Area::new(1, false, AreaValue::_200
 			Area {
-				owner: 1,
+				owner: PlayerName::Player1,
 				is_fortress: false,
 				value: AreaValue::_200,
 			}
@@ -270,7 +268,7 @@ mod tests {
 	#[test]
 	fn area_test() {
 		let area = Area {
-			owner: 1,
+			owner: PlayerName::Player1,
 			is_fortress: false,
 			value: AreaValue::_200,
 		};
@@ -278,7 +276,7 @@ mod tests {
 		assert_eq!(Area::from_str("41").unwrap(), area);
 
 		let area = Area {
-			owner: 3,
+			owner: PlayerName::Player3,
 			is_fortress: false,
 			value: AreaValue::_1000,
 		};
@@ -286,7 +284,7 @@ mod tests {
 		assert_eq!(Area::from_str("13").unwrap(), area);
 
 		let area = Area {
-			owner: 0,
+			owner: PlayerName::Nobody,
 			is_fortress: false,
 			value: AreaValue::Unoccupied,
 		};

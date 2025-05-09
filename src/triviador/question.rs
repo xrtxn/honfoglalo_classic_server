@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
 use tracing::error;
 
+use super::game_player_data::PlayerName;
 use crate::emulator::Emulator;
 use crate::triviador::cmd::Cmd;
 use crate::triviador::triviador_state::TriviadorState;
@@ -142,30 +143,28 @@ impl QuestionAnswerResult {
 		}
 	}
 
-	pub(crate) fn set_player(&mut self, rel_id: u8, player_answer: u8) {
+	pub(crate) fn set_player(&mut self, rel_id: &PlayerName, player_answer: u8) {
 		match rel_id {
-			1 => self.player1 = Some(player_answer),
-			2 => self.player2 = Some(player_answer),
-			3 => self.player3 = Some(player_answer),
-			_ => {
-				error!("Unable to set player answer, invalid player id: {}", rel_id);
-			}
+			PlayerName::Nobody => error!("PlayerName::Nobody can't answer"),
+			PlayerName::Player1 => self.player1 = Some(player_answer),
+			PlayerName::Player2 => self.player2 = Some(player_answer),
+			PlayerName::Player3 => self.player3 = Some(player_answer),
 		}
 	}
 
-	pub(crate) fn get_player(&self, rel_id: u8) -> Option<u8> {
-		match rel_id {
-			1 => self.player1,
-			2 => self.player2,
-			3 => self.player3,
+	pub(crate) fn get_player(&self, player: &PlayerName) -> Option<u8> {
+		match player {
+			PlayerName::Player1 => self.player1,
+			PlayerName::Player2 => self.player2,
+			PlayerName::Player3 => self.player3,
 			_ => {
-				error!("Unable to get player answer, invalid player id: {}", rel_id);
+				error!("Unable to get player answer, invalid player: {}", player);
 				None
 			}
 		}
 	}
 
-	pub(crate) fn is_player_correct(&self, rel_id: u8) -> bool {
+	pub(crate) fn is_player_correct(&self, player: &PlayerName) -> bool {
 		let correct_answer = match self.good {
 			None => {
 				error!("Unable to check if answer is correct, good answer not set, setting to placeholder 1");
@@ -173,7 +172,7 @@ impl QuestionAnswerResult {
 			}
 			Some(_) => self.good.unwrap(),
 		};
-		match self.get_player(rel_id) {
+		match self.get_player(player) {
 			Some(player_answer) => player_answer == correct_answer,
 			None => false,
 		}
@@ -212,10 +211,19 @@ impl TipStageResponse {
 		tip_info: TipInfo,
 		good: i32,
 	) -> TipStageResponse {
-		let mut results: HashMap<u8, i32> = HashMap::new();
-		results.insert(1, TipInfo::difference(good, tip_info.player_1_tip.unwrap()));
-		results.insert(2, TipInfo::difference(good, tip_info.player_2_tip.unwrap()));
-		results.insert(3, TipInfo::difference(good, tip_info.player_3_tip.unwrap()));
+		let mut results: HashMap<PlayerName, i32> = HashMap::new();
+		results.insert(
+			PlayerName::Player1,
+			TipInfo::difference(good, tip_info.player_1_tip.unwrap()),
+		);
+		results.insert(
+			PlayerName::Player2,
+			TipInfo::difference(good, tip_info.player_2_tip.unwrap()),
+		);
+		results.insert(
+			PlayerName::Player3,
+			TipInfo::difference(good, tip_info.player_3_tip.unwrap()),
+		);
 
 		let mut sorted_results: Vec<_> = results.iter().collect();
 		sorted_results.sort_by(|a, b| a.1.cmp(b.1));
@@ -242,7 +250,7 @@ pub struct TipInfo {
 	#[serde(rename = "@TIMEORDER")]
 	// the order of player answers (123)
 	#[serde(serialize_with = "timeorder_serializer")]
-	pub timeorder: Vec<u8>,
+	pub timeorder: Vec<PlayerName>,
 	#[serde(rename = "@T1")]
 	pub player_1_time: Option<f32>,
 	#[serde(rename = "@V1")]
@@ -263,11 +271,11 @@ pub struct TipInfo {
 	pub player_3_closeness: Option<String>,
 }
 
-fn timeorder_serializer<S>(x: &[u8], s: S) -> Result<S::Ok, S::Error>
+fn timeorder_serializer<S>(x: &[PlayerName], s: S) -> Result<S::Ok, S::Error>
 where
 	S: Serializer,
 {
-	s.serialize_str(&x.iter().map(|x| x.to_string()).collect::<String>())
+	s.serialize_str(&x.iter().map(|x| (*x as u8).to_string()).collect::<String>())
 }
 
 impl TipInfo {
@@ -286,27 +294,27 @@ impl TipInfo {
 		}
 	}
 
-	pub(crate) fn add_player_tip(&mut self, rel_id: u8, tip: i32, time: f32) {
-		self.timeorder.push(rel_id);
+	pub(crate) fn add_player_tip(&mut self, player: PlayerName, tip: i32, time: f32) {
+		self.timeorder.push(player);
 		// todo implement closeness calculation
-		match rel_id {
-			1 => {
+		match player {
+			PlayerName::Player1 => {
 				self.player_1_tip = Some(tip);
 				self.player_1_time = Some(time);
 				self.player_1_closeness = Some("10".to_string());
 			}
-			2 => {
+			PlayerName::Player2 => {
 				self.player_2_tip = Some(tip);
 				self.player_2_time = Some(time);
 				self.player_2_closeness = Some("90".to_string());
 			}
-			3 => {
+			PlayerName::Player3 => {
 				self.player_3_tip = Some(tip);
 				self.player_3_time = Some(time);
 				self.player_3_closeness = Some("90".to_string());
 			}
 			_ => {
-				error!("Unable to set player tip, invalid player id: {}", rel_id);
+				error!("Unable to set player tip, invalid player id: {}", player);
 			}
 		}
 	}
@@ -318,9 +326,9 @@ impl TipInfo {
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct TipResult {
 	#[serde(rename = "@WINNER")]
-	pub winner: u8,
+	pub winner: PlayerName,
 	#[serde(rename = "@SECOND")]
-	pub second: u8,
+	pub second: PlayerName,
 	#[serde(rename = "@GOOD")]
 	pub good: i32,
 }

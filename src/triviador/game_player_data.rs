@@ -1,28 +1,57 @@
-use std::fmt;
+use std::fmt::{self, Display};
 use std::str::FromStr;
 
 use anyhow::bail;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 
-#[derive(Hash, Eq, PartialEq, Clone, Debug)]
-pub(crate) enum PlayerNames {
+use crate::emulator::Emulator;
+
+#[derive(Deserialize, PartialEq, Eq, Hash, Clone, Copy, Debug)]
+#[repr(u8)]
+pub(crate) enum PlayerName {
+	Nobody = 0,
 	Player1 = 1,
 	Player2 = 2,
 	Player3 = 3,
 }
 
-impl TryFrom<u8> for PlayerNames {
-	type Error = anyhow::Error;
+impl PlayerName {
+	pub(crate) fn all() -> impl Iterator<Item = PlayerName> {
+		[
+			PlayerName::Player1,
+			PlayerName::Player2,
+			PlayerName::Player3,
+		]
+		.iter()
+		.copied()
+	}
+}
 
-	fn try_from(value: u8) -> Result<Self, Self::Error> {
-		match value {
-			1 => Ok(Self::Player1),
-			2 => Ok(Self::Player2),
-			3 => Ok(Self::Player3),
-			_ => bail!("Invalid player number"),
+impl From<u8> for PlayerName {
+	fn from(val: u8) -> Self {
+		match val {
+			1 => PlayerName::Player1,
+			2 => PlayerName::Player2,
+			3 => PlayerName::Player3,
+			_ => panic!("Invalid PlayerName value"),
 		}
+	}
+}
+impl Display for PlayerName {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let val = *self as u8;
+		write!(f, "{}", val)
+	}
+}
+impl Serialize for PlayerName {
+	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: Serializer,
+	{
+		let val = *self as u8;
+		serializer.serialize_u8(val)
 	}
 }
 
@@ -61,8 +90,11 @@ impl GamePlayerData {
 			act_league: 1,
 		}
 	}
+}
 
-	pub fn emu_player() -> GamePlayerData {
+// Emulates a Player
+impl Emulator for GamePlayerData {
+	fn emulate() -> Self {
 		let mut rng = StdRng::from_entropy();
 		let xp_points = rng.gen_range(100..100000);
 		let xp_level = rng.gen_range(1..100);

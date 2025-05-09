@@ -4,12 +4,12 @@ use std::str::FromStr;
 use serde::{Serialize, Serializer};
 
 use crate::triviador::county::County;
-use crate::triviador::game_player_data::PlayerNames;
+use crate::triviador::game_player_data::PlayerName;
 use crate::utils::{split_string_n, to_hex_with_length};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Selection {
-	counties: HashMap<PlayerNames, County>,
+	counties: HashMap<PlayerName, County>,
 }
 
 impl Selection {
@@ -23,7 +23,7 @@ impl Selection {
 		self.counties.clear();
 	}
 
-	pub fn add_selection(&mut self, player: PlayerNames, county: County) {
+	pub fn add_selection(&mut self, player: PlayerName, county: County) {
 		self.counties.insert(player, county);
 	}
 
@@ -31,7 +31,7 @@ impl Selection {
 		let mut serialized = String::with_capacity(6);
 		// start from 1 because we don't want the 0 value County
 		for i in 1..=3 {
-			let selected_county = self.counties.get(&PlayerNames::try_from(i)?);
+			let selected_county = self.counties.get(&PlayerName::from(i));
 			match selected_county {
 				None => {
 					serialized.push_str("00");
@@ -46,10 +46,8 @@ impl Selection {
 		Ok(serialized)
 	}
 
-	pub(crate) fn get_player_county(&self, rel_id: u8) -> Option<&County> {
-		PlayerNames::try_from(rel_id)
-			.ok()
-			.and_then(|player| self.counties.get(&player))
+	pub(crate) fn get_player_county(&self, player: &PlayerName) -> Option<&County> {
+		self.counties.get(player)
 	}
 }
 
@@ -58,13 +56,13 @@ impl FromStr for Selection {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let vals = split_string_n(s, 2);
-		let mut rest: HashMap<PlayerNames, County> = HashMap::with_capacity(3);
+		let mut rest: HashMap<PlayerName, County> = HashMap::with_capacity(3);
 		for (i, county_str) in vals.iter().enumerate() {
 			let value = u8::from_str_radix(county_str, 16)?;
 
 			rest.insert(
 				// increase by 1 because we don't have Player0
-				PlayerNames::try_from(i as u8 + 1)?,
+				PlayerName::try_from(i as u8 + 1)?,
 				County::try_from(value)?,
 			);
 		}
@@ -85,14 +83,14 @@ impl Serialize for Selection {
 mod tests {
 	use super::*;
 	use crate::triviador::county::County;
-	use crate::triviador::game_player_data::PlayerNames;
+	use crate::triviador::game_player_data::PlayerName;
 
 	#[test]
 	fn test_serialize() {
 		let mut selection = Selection::new();
-		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
-		selection.add_selection(PlayerNames::Player2, County::Veszprem);
-		selection.add_selection(PlayerNames::Player3, County::Csongrad);
+		selection.add_selection(PlayerName::Player1, County::HajduBihar);
+		selection.add_selection(PlayerName::Player2, County::Veszprem);
+		selection.add_selection(PlayerName::Player3, County::Csongrad);
 		let serialized = selection.serialize_full().unwrap();
 		assert_eq!(serialized, "090E0B");
 	}
@@ -100,9 +98,9 @@ mod tests {
 	#[test]
 	fn test_deserialize() {
 		let mut selection = Selection::new();
-		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
-		selection.add_selection(PlayerNames::Player2, County::Veszprem);
-		selection.add_selection(PlayerNames::Player3, County::Csongrad);
+		selection.add_selection(PlayerName::Player1, County::HajduBihar);
+		selection.add_selection(PlayerName::Player2, County::Veszprem);
+		selection.add_selection(PlayerName::Player3, County::Csongrad);
 		let serialized = Selection::from_str("090E0B").unwrap();
 		assert_eq!(serialized, selection);
 	}
@@ -110,9 +108,9 @@ mod tests {
 	#[test]
 	fn test_bases() {
 		let mut selection = Selection::new();
-		selection.add_selection(PlayerNames::Player1, County::HajduBihar);
-		selection.add_selection(PlayerNames::Player2, County::Veszprem);
-		selection.add_selection(PlayerNames::Player3, County::Csongrad);
+		selection.add_selection(PlayerName::Player1, County::HajduBihar);
+		selection.add_selection(PlayerName::Player2, County::Veszprem);
+		selection.add_selection(PlayerName::Player3, County::Csongrad);
 		let serialized = Selection::from_str("090E0B").unwrap();
 		assert_eq!(serialized, selection);
 	}

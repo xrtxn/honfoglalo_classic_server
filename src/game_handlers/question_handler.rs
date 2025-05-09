@@ -4,12 +4,14 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use tokio::sync::Mutex;
 use tokio::task;
+use tokio_stream::StreamExt;
 use tracing::{info, warn};
 
+use super::s_game::GamePlayerInfo;
 use crate::emulator::Emulator;
-use crate::game_handlers::s_game::{get_player_by_rel_id, SGamePlayer};
 use crate::triviador::areas::Area;
 use crate::triviador::game::SharedTrivGame;
+use crate::triviador::game_player_data::PlayerName;
 use crate::triviador::question::{
 	Question, QuestionAnswerResult, QuestionStageResponse, TipInfo, TipStageResponse,
 };
@@ -38,7 +40,7 @@ pub(crate) enum QuestionHandlerType {
 pub(crate) struct QuestionHandler {
 	game: SharedTrivGame,
 	question_handler_type: QuestionHandlerType,
-	players: Vec<SGamePlayer>,
+	action_players: GamePlayerInfo,
 	answer_result: QuestionAnswerResult,
 }
 
@@ -54,12 +56,12 @@ impl QuestionHandler {
 	pub(crate) async fn new(
 		game: SharedTrivGame,
 		question_handler_type: QuestionHandlerType,
-		players: Vec<SGamePlayer>,
 	) -> QuestionHandler {
+		let players = game.action_players().await;
 		QuestionHandler {
 			game,
 			question_handler_type,
-			players,
+			action_players: GamePlayerInfo::from(players),
 			answer_result: QuestionAnswerResult::new(),
 		}
 	}
@@ -76,31 +78,37 @@ impl QuestionHandler {
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
 		// todo do actual work
-		self.game
-			.send_xml_channel(
-				&self.players[0],
-				quick_xml::se::to_string(&QuestionStageResponse::new_question(state, q)).unwrap(),
-			)
-			.await
-			.unwrap();
-		self.game.wait_for_all_players(&self.players).await;
+		while let Some((player, _)) = self.action_players.active_iter().next().await {
+			self.game
+				.send_xml_channel(
+					&player,
+					quick_xml::se::to_string(&QuestionStageResponse::new_question(
+						state.clone(),
+						q.clone(),
+					))
+					.unwrap(),
+				)
+				.await
+				.unwrap();
+		}
+		self.game.wait_for_all_active().await;
 	}
 
 	async fn get_question_response(&mut self) {
-		for player in self.players.iter().filter(|x| x.is_player()) {
+		while let Some((player, _)) = self.action_players.active_iter().next().await {
 			match self.game.recv_command_channel(player).await.unwrap() {
 				ServerCommand::QuestionAnswer(ans) => {
-					self.answer_result.set_player(player.rel_id, ans);
+					self.answer_result.set_player(player, ans);
 				}
 				_ => {
 					warn!("Invalid command");
 				}
 			}
 		}
-		for player in self.players.iter().filter(|x| !x.is_player()) {
+		while let Some((player, _)) = self.action_players.inactive_iter().next().await {
 			let mut rng = StdRng::from_entropy();
 			let random_answer: u8 = rng.gen_range(1..=4);
-			self.answer_result.set_player(player.rel_id, random_answer);
+			self.answer_result.set_player(player, random_answer);
 		}
 	}
 
@@ -120,7 +128,7 @@ impl QuestionHandler {
 			}
 		}
 		let state = self.game.read().await.state.clone();
-		for player in self.players.iter().filter(|x| x.is_player()) {
+		while let Some((player, _)) = self.action_players.active_iter().next().await {
 			self.game
 				.send_xml_channel(
 					player,
@@ -133,7 +141,7 @@ impl QuestionHandler {
 				.await
 				.unwrap();
 		}
-		self.game.wait_for_all_players(&self.players).await;
+		self.game.wait_for_all_active().await;
 	}
 
 	async fn send_updated_state(&self) {
@@ -141,12 +149,12 @@ impl QuestionHandler {
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase += 1;
-				for player in self.players.clone() {
-					if self.answer_result.is_player_correct(player.rel_id) {
+				for (player, _) in self.action_players.0.iter() {
+					if self.answer_result.is_player_correct(&player) {
 						Area::area_occupied(
 							self.game.arc_clone(),
-							player.rel_id,
-							selection.get_player_county(player.rel_id).cloned(),
+							*player,
+							selection.get_player_county(&player).cloned(),
 						)
 						.await
 						.unwrap();
@@ -155,37 +163,37 @@ impl QuestionHandler {
 							.await
 							.state
 							.players_points
-							.change_player_points(&player.rel_id, 200);
+							.change_player_points(&player, 200);
 					} else {
 						self.game
 							.write()
 							.await
 							.state
 							.available_areas
-							.push_county(*selection.get_player_county(player.rel_id).unwrap());
+							.push_county(*selection.get_player_county(player).unwrap());
 					}
 				}
 			}
 			QuestionHandlerType::Battle => {
 				let mut write_game = self.game.write().await;
 				write_game.state.game_state.phase = 21;
-				for player in self.players.clone() {
-					if self.answer_result.is_player_correct(player.rel_id) {
+				for (player, _) in self.action_players.0.iter() {
+					if self.answer_result.is_player_correct(&player) {
 						write_game
 							.state
 							.players_points
-							.change_player_points(&player.rel_id, 200);
+							.change_player_points(&player, 200);
 					} else {
 						write_game
 							.state
 							.players_points
-							.change_player_points(&player.rel_id, -200);
+							.change_player_points(&player, -200);
 					}
 				}
 			}
 		}
 
-		self.game.send_to_all_players(&self.players).await;
+		self.game.send_to_all_active().await;
 	}
 }
 
@@ -207,26 +215,23 @@ pub(crate) enum TipHandlerType {
 
 pub(crate) struct TipHandler {
 	game: SharedTrivGame,
+	action_players: GamePlayerInfo,
 	tip_handler_type: TipHandlerType,
-	players: Vec<SGamePlayer>,
 	tip_info: TipInfo,
 }
 
 impl TipHandler {
-	pub(crate) async fn new(
-		game: SharedTrivGame,
-		stage_type: TipHandlerType,
-		players: Vec<SGamePlayer>,
-	) -> TipHandler {
+	pub(crate) async fn new(game: SharedTrivGame, stage_type: TipHandlerType) -> TipHandler {
+		let players = game.action_players().await;
 		TipHandler {
 			game,
+			action_players: GamePlayerInfo::from(players),
 			tip_handler_type: stage_type,
-			players,
 			tip_info: TipInfo::new(),
 		}
 	}
 
-	pub(crate) async fn handle_all(&mut self) -> SGamePlayer {
+	pub(crate) async fn handle_all(&mut self) -> PlayerName {
 		self.send_tip_request().await;
 		self.get_tip_response().await;
 		self.send_player_answers().await
@@ -243,7 +248,7 @@ impl TipHandler {
 		}
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
-		for player in self.players.iter().filter(|x| x.is_player()) {
+		while let Some((player, _)) = self.action_players.active_iter().next().await {
 			self.game
 				.send_xml_channel(
 					player,
@@ -253,29 +258,32 @@ impl TipHandler {
 				.await
 				.unwrap();
 		}
-		self.game.wait_for_all_players(&self.players).await;
+		self.game.wait_for_all_active().await;
 	}
 
+	// todo review this
 	async fn get_tip_response(&mut self) {
 		let start = std::time::Instant::now();
 		let tip_info = Arc::new(Mutex::new(self.tip_info.clone()));
 
 		// Spawn tasks for each player
 		let tasks: Vec<_> = self
-			.players
+			.action_players
+			.0
 			.iter()
-			.map(|player| {
+			.map(|(player, info)| {
 				// Clone what you need outside the async move
 				let player = player.clone();
+				let info = info.clone();
 				let game = self.game.arc_clone();
 				let tip_info = Arc::clone(&tip_info);
 
 				task::spawn(async move {
-					if player.is_player() {
+					if info.is_player() {
 						match game.recv_command_channel(&player).await {
 							Ok(ServerCommand::TipAnswer(ans)) => {
 								tip_info.lock().await.add_player_tip(
-									player.rel_id,
+									player,
 									ans,
 									start.elapsed().as_secs_f32(),
 								);
@@ -288,7 +296,7 @@ impl TipHandler {
 						let mut rng = StdRng::from_entropy();
 						let random_answer = rng.gen_range(1..100);
 						tip_info.lock().await.add_player_tip(
-							player.rel_id,
+							player,
 							random_answer,
 							start.elapsed().as_secs_f32(),
 						);
@@ -303,7 +311,7 @@ impl TipHandler {
 		// Update self.tip_info after collecting all results
 		self.tip_info = tip_info.lock().await.clone();
 	}
-	async fn send_player_answers(&self) -> SGamePlayer {
+	async fn send_player_answers(&self) -> PlayerName {
 		// todo placeholder
 		let good = 1;
 		// both need to be increased by 2
@@ -312,7 +320,7 @@ impl TipHandler {
 		let state = self.game.read().await.state.clone();
 		let tip_stage_response =
 			TipStageResponse::new_tip_result(state.clone(), self.tip_info.clone(), good);
-		for player in self.players.iter().filter(|x| x.is_player()) {
+		while let Some((player, _)) = self.action_players.active_iter().next().await {
 			self.game
 				.send_xml_channel(
 					player,
@@ -321,8 +329,8 @@ impl TipHandler {
 				.await
 				.unwrap();
 		}
-		self.game.wait_for_all_players(&self.players).await;
+		self.game.wait_for_all_active().await;
 		let winner = tip_stage_response.tip_result.unwrap();
-		get_player_by_rel_id(self.players.clone(), winner.winner)
+		winner.winner
 	}
 }

@@ -1,34 +1,39 @@
+use std::collections::HashMap;
+
 use rand::prelude::{IteratorRandom, StdRng};
-use rand::{Rng, SeedableRng};
+use rand::SeedableRng;
+use tokio_stream::{Stream, StreamExt};
 
 use crate::game_handlers::area_conquer_handler::AreaConquerHandler;
 use crate::game_handlers::base_handler::BaseHandler;
 use crate::game_handlers::battle_handler::BattleHandler;
 use crate::game_handlers::fill_remaining_handler::FillRemainingHandler;
-use crate::game_handlers::PlayerType;
 use crate::triviador::areas::Area;
 use crate::triviador::available_area::AvailableAreas;
+use crate::triviador::cmd::Cmd;
 use crate::triviador::game::SharedTrivGame;
+use crate::triviador::game_player_data::PlayerName;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
+use crate::triviador::triviador_state::GamePlayerChannels;
 use crate::triviador::war_order::WarOrder;
 
 pub(crate) struct SGame {
 	game: SharedTrivGame,
-	pub(crate) players: Vec<SGamePlayer>,
+	pub(crate) players: GamePlayerInfo,
 }
 
 mod emulation_config {
 	pub(crate) const BASE_SELECTION: bool = true;
 	pub(crate) const AREA_SELECTION: bool = true;
-	pub(crate) const FILL_REMAINING: bool = false;
+	pub(crate) const FILL_REMAINING: bool = true;
 	pub(crate) const BATTLE: bool = false;
 }
 
 impl SGame {
 	const PLAYER_COUNT: usize = 3;
 
-	pub(crate) fn new(game: SharedTrivGame, players: Vec<SGamePlayer>) -> SGame {
+	pub(crate) fn new(game: SharedTrivGame, players: GamePlayerInfo) -> SGame {
 		SGame {
 			game: game.arc_clone(),
 			players,
@@ -50,20 +55,20 @@ impl SGame {
 			phase: 0,
 		};
 		// this must be sent from here as the initial listen state is false
-		self.game.send_to_all_players(&self.players).await;
-		self.game.wait_for_all_players(&self.players).await;
+		self.game.send_to_all_active().await;
+		self.game.wait_for_all_active().await;
 	}
 
 	async fn base_selection(&self) {
 		if emulation_config::BASE_SELECTION {
 			SGameStateEmulator::base_selection(self.game.arc_clone()).await;
 		} else {
-			let base_handler = BaseHandler::new(self.game.arc_clone(), self.players.clone());
+			let base_handler = BaseHandler::new(self.game.arc_clone());
 			// announcement for players
 			self.game.write().await.state.active_player = None;
 			base_handler.announcement().await;
 			// pick a base for everyone
-			for player in &self.players {
+			for (player, _) in self.players.0.clone() {
 				self.game.write().await.state.active_player = Some(player.clone());
 				base_handler.start_selection().await;
 				base_handler.selection_response().await;
@@ -76,7 +81,7 @@ impl SGame {
 		if emulation_config::AREA_SELECTION {
 			SGameStateEmulator::area_selection(self.game.arc_clone()).await;
 		} else {
-			let area_handler = AreaConquerHandler::new(self.game.arc_clone(), self.players.clone());
+			let area_handler = AreaConquerHandler::new(self.game.arc_clone());
 			let wo = Some(WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT));
 			self.game.write().await.state.war_order = wo.clone();
 			// setup area handler
@@ -88,7 +93,7 @@ impl SGame {
 				area_handler.announcement().await;
 				self.game.write().await.state.round_info = RoundInfo {
 					mini_phase_num: 0,
-					rel_player_id: 0,
+					active_player: PlayerName::Nobody,
 					attacked_player: None,
 				};
 				// select an area for everyone
@@ -99,14 +104,14 @@ impl SGame {
 					.unwrap()
 				{
 					// todo unify
-					self.game.write().await.state.active_player =
-						Some(get_player_by_rel_id(self.players.clone(), rel_player));
+					self.game.write().await.state.active_player = Some(rel_player);
 					area_handler.ask_desired_area().await;
 					area_handler.desired_area_response().await;
 				}
 				area_handler.question().await;
 				area_handler.send_updated_state().await;
 				let mut game_writer = self.game.write().await;
+				game_writer.state.selection.clear();
 				game_writer.state.game_state.round += 1;
 				game_writer.state.round_info.mini_phase_num = 1;
 				mini_phase_counter += Self::PLAYER_COUNT;
@@ -118,8 +123,7 @@ impl SGame {
 		if emulation_config::FILL_REMAINING {
 			SGameStateEmulator::fill_remaining(self.game.arc_clone()).await;
 		} else {
-			let mut fill_remaining_handler =
-				FillRemainingHandler::new(self.game.arc_clone(), self.players.clone());
+			let mut fill_remaining_handler = FillRemainingHandler::new(self.game.arc_clone());
 			// setup
 			fill_remaining_handler.setup().await;
 			// todo improve constant write() calls
@@ -143,8 +147,7 @@ impl SGame {
 		if emulation_config::BATTLE {
 			todo!("add battle emu");
 		} else {
-			let mut battle_handler =
-				BattleHandler::new(self.game.arc_clone(), self.players.clone());
+			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
 			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
 			let wo = WarOrder::from(vec![1, 2, 3, 3, 2, 1]);
 			self.game.write().await.state.war_order = Some(wo.clone());
@@ -156,18 +159,17 @@ impl SGame {
 			for _ in 0..6 {
 				self.game.write().await.state.round_info = RoundInfo {
 					mini_phase_num: 0,
-					rel_player_id: *wo.get_next_players(0, 1).unwrap().first().unwrap(),
-					attacked_player: Some(0),
+					active_player: *wo.get_next_players(0, 1).unwrap().first().unwrap(),
+					attacked_player: Some(PlayerName::Nobody),
 				};
 				// announcement for all players
 				battle_handler.announcement().await;
 
 				// let everyone attack
-				for rel_player in wo
+				for player in wo
 					.get_next_players(mini_phase_counter, Self::PLAYER_COUNT)
 					.unwrap()
 				{
-					let player = get_player_by_rel_id(self.players.clone(), rel_player);
 					self.game.write().await.state.active_player = Some(player);
 					battle_handler.ask_attacking_area().await;
 					battle_handler.attacked_area_response().await;
@@ -196,16 +198,10 @@ struct SGameStateEmulator {}
 impl SGameStateEmulator {
 	pub(super) async fn base_selection(game: SharedTrivGame) {
 		game.write().await.state.available_areas = AvailableAreas::all_counties();
-
-		let emu_players = vec![
-			SGamePlayer::new(PlayerType::Bot, 1, 1),
-			SGamePlayer::new(PlayerType::Bot, 2, 2),
-			SGamePlayer::new(PlayerType::Bot, 3, 3),
-		];
-		let bh = BaseHandler::new(game.arc_clone(), emu_players);
-		bh.new_base_selected(1, 1).await;
-		bh.new_base_selected(8, 2).await;
-		bh.new_base_selected(11, 3).await;
+		let bh = BaseHandler::new(game.arc_clone());
+		bh.new_base_selected(1, PlayerName::Player1).await;
+		bh.new_base_selected(8, PlayerName::Player2).await;
+		bh.new_base_selected(11, PlayerName::Player3).await;
 	}
 
 	pub(super) async fn area_selection(game: SharedTrivGame) {
@@ -213,11 +209,11 @@ impl SGameStateEmulator {
 		// this is useful for fill_remaining debugging
 		// let round_num = rng.gen_range(1..=5);
 		for _ in 1..=5 {
-			for rel_player_id in 1..=3 {
+			for player in PlayerName::all() {
 				let avail = &game.read().await.state.available_areas.clone();
 
 				let county = *avail.counties().iter().choose(&mut rng).unwrap();
-				Area::area_occupied(game.arc_clone(), rel_player_id, Option::from(county))
+				Area::area_occupied(game.arc_clone(), player, Option::from(county))
 					.await
 					.unwrap();
 				game.write().await.state.available_areas.pop_county(&county);
@@ -235,37 +231,95 @@ impl SGameStateEmulator {
 
 			let mut rng = StdRng::from_entropy();
 			let area = *avail.counties().iter().choose(&mut rng).unwrap();
-			Area::area_occupied(game.arc_clone(), rng.gen_range(1..3), Option::from(area))
-				.await
-				.unwrap();
+			Area::area_occupied(
+				game.arc_clone(),
+				PlayerName::all().choose(&mut rng).unwrap(),
+				Option::from(area),
+			)
+			.await
+			.unwrap();
 			game.write().await.state.available_areas.pop_county(&area);
 		}
 	}
 }
 
-#[derive(Eq, Hash, PartialEq, Clone, Debug)]
-pub(crate) struct SGamePlayer {
-	player_type: PlayerType,
-	// todo remove pub
-	pub(crate) id: i32,
-	pub(crate) rel_id: u8,
+#[derive(Clone, Debug)]
+// todo temporarily public field, replace with streams
+pub(crate) struct GamePlayerInfo(pub(crate) HashMap<PlayerName, SGamePlayerInfo>);
+
+impl GamePlayerInfo {
+	pub(crate) fn new() -> GamePlayerInfo {
+		GamePlayerInfo(HashMap::new())
+	}
+
+	pub(crate) fn add(&mut self, player: PlayerName, info: SGamePlayerInfo) {
+		self.0.insert(player, info);
+	}
+
+	pub(crate) fn get_player(&self, player: &PlayerName) -> &SGamePlayerInfo {
+		self.0.get(&player).unwrap()
+	}
+
+	pub(crate) fn get_player_mut(&mut self, player: &PlayerName) -> &mut SGamePlayerInfo {
+		self.0.get_mut(&player).unwrap()
+	}
+
+	pub(crate) fn players_iter(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+		tokio_stream::iter(&self.0)
+	}
+
+	pub(crate) fn active_iter(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+		tokio_stream::iter(&self.0).filter(|(_, info)| info.is_player())
+	}
+
+	pub(crate) fn inactive_iter(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+		tokio_stream::iter(&self.0).filter(|(_, info)| !info.is_player())
+	}
 }
 
-impl SGamePlayer {
-	pub(crate) fn new(player_type: PlayerType, id: i32, rel_id: u8) -> SGamePlayer {
-		SGamePlayer {
-			player_type,
-			id,
-			rel_id,
+impl From<HashMap<PlayerName, SGamePlayerInfo>> for GamePlayerInfo {
+	fn from(map: HashMap<PlayerName, SGamePlayerInfo>) -> Self {
+		GamePlayerInfo(map)
+	}
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SGamePlayerInfo {
+	active: bool,
+	cmd: Option<Cmd>,
+	channels: Option<GamePlayerChannels>,
+}
+
+impl SGamePlayerInfo {
+	pub(crate) fn new(is_active: bool) -> SGamePlayerInfo {
+		SGamePlayerInfo {
+			active: is_active,
+			cmd: None,
+			channels: None,
 		}
 	}
 
 	pub(crate) fn is_player(&self) -> bool {
-		self.player_type == PlayerType::Player
+		self.active
 	}
-}
 
-// it would be ideal to use a hashset instead of this
-pub(crate) fn get_player_by_rel_id(players: Vec<SGamePlayer>, rel_id: u8) -> SGamePlayer {
-	players.iter().find(|x| x.rel_id == rel_id).unwrap().clone()
+	#[allow(dead_code)]
+	pub(crate) fn set_active(&mut self, active: bool) {
+		self.active = active;
+	}
+
+	pub(crate) fn set_cmd(&mut self, cmd: Option<Cmd>) {
+		self.cmd = cmd;
+	}
+	pub(crate) fn get_cmd(&self) -> &Option<Cmd> {
+		&self.cmd
+	}
+
+	pub(crate) fn set_channels(&mut self, channels: Option<GamePlayerChannels>) {
+		self.channels = channels;
+	}
+
+	pub(crate) fn get_player_channels(&self) -> &Option<GamePlayerChannels> {
+		&self.channels
+	}
 }

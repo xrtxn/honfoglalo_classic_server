@@ -5,12 +5,13 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
 use tokio::sync::RwLock;
+use tokio_stream::StreamExt;
 
 use super::areas::Areas;
 use super::available_area::AvailableAreas;
+use super::game_player_data::PlayerName;
 use super::player_points::PlayerPoints;
-use super::triviador_state::GamePlayerChannels;
-use crate::game_handlers::s_game::SGamePlayer;
+use crate::game_handlers::s_game::{GamePlayerInfo, SGamePlayerInfo};
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::bases::Bases;
 use crate::triviador::cmd::Cmd;
@@ -29,49 +30,79 @@ impl SharedTrivGame {
 	}
 
 	/// Convenience function for Arc clone
-	pub fn arc_clone(&self) -> Self {
+	pub(crate) fn arc_clone(&self) -> Self {
 		Self(Arc::clone(&self.0))
 	}
 
-	pub async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, TriviadorGame> {
+	pub(crate) async fn read(&self) -> tokio::sync::RwLockReadGuard<'_, TriviadorGame> {
 		self.0.read().await
 	}
 
-	pub async fn write(&self) -> tokio::sync::RwLockWriteGuard<'_, TriviadorGame> {
+	pub(crate) async fn write(&self) -> tokio::sync::RwLockWriteGuard<'_, TriviadorGame> {
 		self.0.write().await
 	}
 
-	pub async fn send_xml_channel(
+	pub(crate) async fn send_xml_channel(
 		&self,
-		player: &SGamePlayer,
+		player: &PlayerName,
 		msg: String,
 	) -> Result<(), flume::SendError<String>> {
 		let game = self.read().await;
-		let channel = game.utils.get(player).unwrap().channels.clone();
+		let channel = game.utils.get_player(player).get_player_channels().clone();
 		drop(game);
 		channel.unwrap().xml_channel.send_message(msg).await
 	}
 
 	pub(crate) async fn recv_command_channel(
 		&self,
-		player: &SGamePlayer,
+		player: &PlayerName,
 	) -> Result<ServerCommand, flume::RecvError> {
 		let game = self.read().await;
-		let channel = game.utils.get(player).unwrap().channels.clone();
+		let channel = game.utils.get_player(player).get_player_channels().clone();
 		drop(game);
 		channel.unwrap().command_channel.recv_message().await
 	}
 
 	// todo truly async send these
-	pub(crate) async fn wait_for_all_players(&self, players: &[SGamePlayer]) {
-		for player in players.iter().filter(|x| x.is_player()) {
+	pub(crate) async fn wait_for_all_active(&self) {
+		for (player, _) in self
+			.read()
+			.await
+			.utils
+			.0
+			.iter()
+			.filter(|(_, info)| info.is_player())
+		{
 			wait_for_game_ready(self.arc_clone().borrow(), player).await;
 		}
 	}
-	pub(crate) async fn send_to_all_players(&self, players: &[SGamePlayer]) {
-		for player in players.iter().filter(|x| x.is_player()) {
+
+	pub(crate) async fn send_to_all_active(&self) {
+		// this avoids a deadlock
+		let utils = self.read().await.utils.clone();
+		while let Some((player, _)) = utils.active_iter().next().await {
 			send_player_commongame(self.arc_clone().borrow(), player).await;
 		}
+	}
+
+	// todo only return a stream
+	pub(crate) async fn action_players(&self) -> HashMap<PlayerName, SGamePlayerInfo> {
+		let game_reader = self.read().await;
+		let mut players: HashMap<PlayerName, SGamePlayerInfo> = HashMap::with_capacity(2);
+		let round_info = &game_reader.state.round_info;
+		let active_player = round_info.active_player;
+		players.insert(
+			round_info.active_player,
+			game_reader
+				.utils
+				.get_player(&round_info.active_player)
+				.clone(),
+		);
+		game_reader.utils.get_player(&active_player);
+		if let Some(player) = round_info.attacked_player {
+			players.insert(player, game_reader.utils.get_player(&player).clone());
+		}
+		players
 	}
 }
 
@@ -80,13 +111,13 @@ impl SharedTrivGame {
 #[serde(rename = "ROOT")]
 pub struct TriviadorGame {
 	#[serde(rename = "STATE")]
-	pub state: TriviadorState,
+	pub(crate) state: TriviadorState,
 	#[serde(rename = "PLAYERS")]
-	pub players: Option<PlayerInfo>,
+	pub(crate) players: Option<PlayerInfo>,
 	#[serde(rename = "CMD")]
-	pub cmd: Option<Cmd>,
+	pub(crate) cmd: Option<Cmd>,
 	#[serde(skip)]
-	pub utils: HashMap<SGamePlayer, PlayerUtils>,
+	pub(crate) utils: GamePlayerInfo,
 }
 
 impl TriviadorGame {
@@ -102,7 +133,7 @@ impl TriviadorGame {
 				},
 				round_info: RoundInfo {
 					mini_phase_num: 0,
-					rel_player_id: 0,
+					active_player: PlayerName::Nobody,
 					attacked_player: None,
 				},
 				players_connected: "123".to_string(),
@@ -121,19 +152,13 @@ impl TriviadorGame {
 			},
 			players: Some(player_info),
 			cmd: None,
-			utils: HashMap::new(),
+			utils: GamePlayerInfo::new(),
 		}
 	}
 
-	pub(crate) async fn add_fill_round_winner(&mut self, winner: u8) {
+	pub(crate) async fn add_fill_round_winner(&mut self, winner: Option<PlayerName>) {
 		self.state
 			.fill_round_winners
-			.push_str(winner.to_string().as_str());
+			.push_str(winner.unwrap().to_string().as_str());
 	}
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct PlayerUtils {
-	pub cmd: Option<Cmd>,
-	pub channels: Option<GamePlayerChannels>,
 }

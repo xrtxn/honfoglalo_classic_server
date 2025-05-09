@@ -29,7 +29,7 @@ use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
-const QUICK_BATTLE_EMU: bool = true;
+const QUICK_BATTLE_EMU: bool = false;
 
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this

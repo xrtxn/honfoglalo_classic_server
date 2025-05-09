@@ -1,8 +1,7 @@
 use serde::Serialize;
 use serde_with::skip_serializing_none;
 
-use super::game::SharedTrivGame;
-use crate::game_handlers::s_game::SGamePlayer;
+use super::{game::SharedTrivGame, game_player_data::PlayerName};
 use crate::triviador::available_area::AvailableAreas;
 
 #[skip_serializing_none]
@@ -12,7 +11,6 @@ pub struct Cmd {
 	pub command: String,
 	#[serde(
 		rename = "@AVAILABLE",
-		serialize_with = "AvailableAreas::available_serialize",
 		skip_serializing_if = "AvailableAreas::is_empty"
 	)]
 	pub available: AvailableAreas,
@@ -22,21 +20,21 @@ pub struct Cmd {
 }
 
 impl Cmd {
-	pub fn select_command(available_areas: AvailableAreas, timeout: u8) -> Cmd {
+	pub(crate) fn select_command(available_areas: AvailableAreas, timeout: u8) -> Cmd {
 		Cmd {
 			command: "SELECT".to_string(),
 			available: available_areas,
 			timeout,
 		}
 	}
-	pub fn answer_command(timeout: u8) -> Cmd {
+	pub(crate) fn answer_command(timeout: u8) -> Cmd {
 		Cmd {
 			command: "ANSWER".to_string(),
 			available: AvailableAreas::new(),
 			timeout,
 		}
 	}
-	pub fn tip_command(timeout: u8) -> Cmd {
+	pub(crate) fn tip_command(timeout: u8) -> Cmd {
 		Cmd {
 			command: "TIP".to_string(),
 			available: AvailableAreas::new(),
@@ -44,9 +42,15 @@ impl Cmd {
 		}
 	}
 
-	pub async fn set_player_cmd(game: SharedTrivGame, player_id: &SGamePlayer, cmd: Option<Cmd>) {
-		if let Some(x) = game.write().await.utils.get_mut(player_id) {
-			x.cmd = cmd;
-		}
+	pub(crate) async fn set_player_cmd(
+		game: SharedTrivGame,
+		player_id: &PlayerName,
+		cmd: Option<Cmd>,
+	) {
+		game.write()
+			.await
+			.utils
+			.get_player_mut(player_id)
+			.set_cmd(cmd);
 	}
 }

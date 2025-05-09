@@ -1,4 +1,3 @@
-pub(crate) mod area;
 pub(crate) mod areas;
 pub(crate) mod available_area;
 pub(crate) mod bases;

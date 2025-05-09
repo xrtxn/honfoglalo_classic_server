@@ -2,24 +2,26 @@ use std::collections::HashMap;
 
 use serde::{Serialize, Serializer};
 
+use super::game_player_data::PlayerName;
+
 #[derive(Clone, Debug)]
-pub(crate) struct PlayerPoints(HashMap<u8, i16>);
+pub(crate) struct PlayerPoints(HashMap<PlayerName, i16>);
 
 impl PlayerPoints {
 	pub(crate) fn new() -> PlayerPoints {
 		let mut points = HashMap::new();
-		for i in 1..=3 {
-			points.insert(i, 0);
-		}
+		points.insert(PlayerName::Player1, 0);
+		points.insert(PlayerName::Player2, 0);
+		points.insert(PlayerName::Player3, 0);
 		Self(points)
 	}
 
-	pub(crate) fn set_player_points(&mut self, rel_id: &u8, points: i16) {
+	pub(crate) fn set_player_points(&mut self, rel_id: &PlayerName, points: i16) {
 		let old_points = self.0.get_mut(rel_id).unwrap();
 		*old_points = points;
 	}
 
-	pub(crate) fn change_player_points(&mut self, rel_id: &u8, by: i16) {
+	pub(crate) fn change_player_points(&mut self, rel_id: &PlayerName, by: i16) {
 		let old_points = self.0.get_mut(rel_id).unwrap();
 		*old_points += by;
 	}
@@ -32,9 +34,9 @@ impl Serialize for PlayerPoints {
 	{
 		let s = format!(
 			"{},{},{}",
-			self.0.get(&1).unwrap(),
-			self.0.get(&2).unwrap(),
-			self.0.get(&3).unwrap()
+			self.0.get(&PlayerName::Player1).unwrap(),
+			self.0.get(&PlayerName::Player2).unwrap(),
+			self.0.get(&PlayerName::Player3).unwrap()
 		);
 
 		serializer.serialize_str(&s)

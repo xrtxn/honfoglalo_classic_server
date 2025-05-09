@@ -2,11 +2,11 @@ use serde::Serialize;
 use serde_with::skip_serializing_none;
 
 use super::areas::Areas;
+use super::game_player_data::PlayerName;
 use super::player_points::PlayerPoints;
 use super::war_order::WarOrder;
 use crate::app::ServerCommandChannel;
 use crate::app::XmlPlayerChannel;
-use crate::game_handlers::s_game::SGamePlayer;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::bases::Bases;
 use crate::triviador::game_state::GameState;
@@ -34,10 +34,9 @@ pub(crate) struct TriviadorState {
 	pub selection: Selection,
 	#[serde(rename = "@B")]
 	pub base_info: Bases,
-	#[serde(rename = "@A", serialize_with = "Areas::areas_serializer")]
-	// todo replace this with an enum struct
+	#[serde(rename = "@A")]
 	pub areas_info: Areas,
-	#[serde(rename = "@AA", serialize_with = "AvailableAreas::available_serialize")]
+	#[serde(rename = "@AA")]
 	pub available_areas: AvailableAreas,
 	#[serde(rename = "@UH")]
 	pub used_helps: String,
@@ -51,8 +50,9 @@ pub(crate) struct TriviadorState {
 	#[serde(rename = "@WO")]
 	// war order and rounds
 	pub war_order: Option<WarOrder>,
+	// todo remove
 	#[serde(skip)]
-	pub active_player: Option<SGamePlayer>,
+	pub active_player: Option<PlayerName>,
 }
 
 #[derive(Clone, Debug)]

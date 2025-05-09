@@ -4,7 +4,7 @@ use std::str::FromStr;
 use serde::{Serialize, Serializer};
 
 use super::game::SharedTrivGame;
-use crate::triviador::game_player_data::PlayerNames;
+use crate::triviador::game_player_data::PlayerName;
 use crate::utils::split_string_n;
 
 #[derive(PartialEq, Debug, Clone)]
@@ -57,15 +57,14 @@ impl Serialize for Base {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Bases {
-	every_base: HashMap<PlayerNames, Base>,
+	every_base: HashMap<PlayerName, Base>,
 }
 
 impl Bases {
 	pub fn serialize_full(&self) -> Result<String, anyhow::Error> {
-		// later this may not be 38 for different countries
 		let mut serialized = String::with_capacity(6);
-		for i in 1..4 {
-			match self.every_base.get(&PlayerNames::try_from(i)?) {
+		for i in 1..4_u8 {
+			match self.every_base.get(&PlayerName::from(i)) {
 				None => serialized.push_str("00"),
 				Some(base) => serialized.push_str(&base.serialize_to_hex()),
 			}
@@ -81,7 +80,7 @@ impl Bases {
 
 	pub async fn add_base(
 		game: SharedTrivGame,
-		player: PlayerNames,
+		player: PlayerName,
 		base: Base,
 	) -> Result<(), anyhow::Error> {
 		game.write()
@@ -99,11 +98,11 @@ impl FromStr for Bases {
 
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let vals = split_string_n(s, 2);
-		let mut rest: HashMap<PlayerNames, Base> = HashMap::with_capacity(3);
+		let mut rest: HashMap<PlayerName, Base> = HashMap::with_capacity(3);
 		for (i, base_str) in vals.iter().enumerate() {
 			rest.insert(
 				// increase by 1 because we don't have Player0
-				PlayerNames::try_from(i as u8 + 1)?,
+				PlayerName::try_from(i as u8 + 1)?,
 				Base::from_str(base_str)?,
 			);
 		}
@@ -143,21 +142,21 @@ mod tests {
 			Bases {
 				every_base: HashMap::from([
 					(
-						PlayerNames::Player1,
+						PlayerName::Player1,
 						Base {
 							base_id: 12,
 							towers_destroyed: 2
 						}
 					),
 					(
-						PlayerNames::Player2,
+						PlayerName::Player2,
 						Base {
 							base_id: 8,
 							towers_destroyed: 0
 						}
 					),
 					(
-						PlayerNames::Player3,
+						PlayerName::Player3,
 						Base {
 							base_id: 11,
 							towers_destroyed: 0

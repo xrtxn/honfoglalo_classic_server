@@ -3,9 +3,12 @@ use rand::thread_rng;
 use serde::{Serialize, Serializer};
 use tracing::error;
 
+use super::game_player_data::PlayerName;
+
+// todo make enum struct
 #[derive(Debug, Clone)]
 pub struct WarOrder {
-	pub order: Vec<u8>,
+	pub order: Vec<PlayerName>,
 }
 
 // todo account for players getting a base
@@ -18,7 +21,11 @@ impl WarOrder {
 		}
 		let mut order = Vec::with_capacity(round_count as usize * 3);
 		for _ in 0..round_count {
-			let mut vec: Vec<u8> = vec![1, 2, 3];
+			let mut vec: Vec<PlayerName> = vec![
+				PlayerName::Player1,
+				PlayerName::Player2,
+				PlayerName::Player3,
+			];
 			vec.shuffle(&mut thread_rng());
 			order.append(&mut vec);
 		}
@@ -28,7 +35,7 @@ impl WarOrder {
 	fn serialize(&self) -> String {
 		let mut serialized = "".to_string();
 		for rel_id in self.order.iter() {
-			serialized.push_str(rel_id.to_string().as_str());
+			serialized.push_str((*rel_id as u8).to_string().as_str());
 		}
 		serialized
 	}
@@ -37,15 +44,22 @@ impl WarOrder {
 		&self,
 		start: usize,
 		amount: usize,
-	) -> Result<Vec<u8>, anyhow::Error> {
+	) -> Result<Vec<PlayerName>, anyhow::Error> {
 		let players = self.order[start..(start + amount)].to_vec();
 		Ok(players)
 	}
 }
 
+impl From<Vec<PlayerName>> for WarOrder {
+	fn from(counties: Vec<PlayerName>) -> Self {
+		WarOrder { order: counties }
+	}
+}
+
 impl From<Vec<u8>> for WarOrder {
 	fn from(counties: Vec<u8>) -> Self {
-		WarOrder { order: counties }
+		let order: Vec<PlayerName> = counties.iter().map(|x| PlayerName::from(*x)).collect();
+		WarOrder { order }
 	}
 }
 
@@ -64,11 +78,23 @@ mod tests {
 
 	#[test]
 	fn test_get_next_players() {
-		let wo = WarOrder {
-			order: vec![1, 2, 3, 3, 2, 1],
-		};
+		let wo = WarOrder::from(vec![1, 2, 3, 3, 2, 1]);
 
-		assert_eq!(wo.get_next_players(0, 3).unwrap(), vec![1, 2, 3]);
-		assert_eq!(wo.get_next_players(3, 3).unwrap(), vec![3, 2, 1]);
+		assert_eq!(
+			wo.get_next_players(0, 3).unwrap(),
+			vec![
+				PlayerName::Player1,
+				PlayerName::Player2,
+				PlayerName::Player3
+			]
+		);
+		assert_eq!(
+			wo.get_next_players(3, 3).unwrap(),
+			vec![
+				PlayerName::Player3,
+				PlayerName::Player2,
+				PlayerName::Player1
+			]
+		);
 	}
 }
