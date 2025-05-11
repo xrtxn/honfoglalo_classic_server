@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tokio_stream::{Stream, StreamExt};
+use tracing::trace;
 
 use crate::game_handlers::area_conquer_handler::AreaConquerHandler;
 use crate::game_handlers::base_handler::BaseHandler;
@@ -24,9 +25,9 @@ pub(crate) struct SGame {
 }
 
 mod emulation_config {
-	pub(crate) const BASE_SELECTION: bool = true;
-	pub(crate) const AREA_SELECTION: bool = true;
-	pub(crate) const FILL_REMAINING: bool = true;
+	pub(crate) const BASE_SELECTION: bool = false;
+	pub(crate) const AREA_SELECTION: bool = false;
+	pub(crate) const FILL_REMAINING: bool = false;
 	pub(crate) const BATTLE: bool = false;
 }
 
@@ -49,17 +50,22 @@ impl SGame {
 	}
 
 	async fn setup(&self) {
+		trace!("setup");
 		self.game.write().await.state.game_state = GameState {
 			state: 11,
 			round: 0,
 			phase: 0,
 		};
+		trace!("setup write");
 		// this must be sent from here as the initial listen state is false
 		self.game.send_to_all_active().await;
+		trace!("setup send");
 		self.game.wait_for_all_active().await;
+		trace!("setup end");
 	}
 
 	async fn base_selection(&self) {
+		trace!("base selection");
 		if emulation_config::BASE_SELECTION {
 			SGameStateEmulator::base_selection(self.game.arc_clone()).await;
 		} else {

@@ -29,7 +29,7 @@ use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
-const QUICK_BATTLE_EMU: bool = false;
+const QUICK_BATTLE_EMU: bool = true;
 
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this
@@ -66,7 +66,6 @@ pub async fn game(
 	server_command_channel: Extension<ServerCommandChannel>,
 	body: String,
 ) -> Result<String, AppError> {
-	trace!("game handler called");
 	const GAME_ID: u32 = 1;
 	const PLAYER_ID: i32 = 1;
 	const PLAYER_NAME: &str = "xrtxn";
@@ -213,14 +212,15 @@ pub async fn game(
 			}
 		}
 		BodyChannelType::Listen(lis) => {
+			dbg!("listen: {:?}", &lis);
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
 
 			player_state.set_listen_ready(ser.listen.is_ready).await;
 
-			// while !player_state.get_listen_ready().await {
-			// tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-			// dbg!("waiting for listen ready");
-			// }
+			while !player_state.get_listen_ready().await {
+				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+				dbg!("waiting for listen ready");
+			}
 
 			trace!("listen state is {}", player_state.get_listen_ready().await);
 			if !player_state.get_login().await {
@@ -237,7 +237,6 @@ pub async fn game(
 			}
 
 			let msg = player_channel.recv_message().await.unwrap();
-			trace!("recv'd message");
 			Ok(format!(
 				"{}\n{}",
 				quick_xml::se::to_string(&ListenResponseHeader {

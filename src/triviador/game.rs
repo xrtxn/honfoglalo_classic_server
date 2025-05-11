@@ -6,6 +6,7 @@ use serde::Serialize;
 use serde_with::skip_serializing_none;
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
+use tracing::trace;
 
 use super::areas::Areas;
 use super::available_area::AvailableAreas;
@@ -80,8 +81,10 @@ impl SharedTrivGame {
 	pub(crate) async fn send_to_all_active(&self) {
 		// this avoids a deadlock
 		let utils = self.read().await.utils.clone();
-		while let Some((player, _)) = utils.active_iter().next().await {
+		let mut iter = utils.active_iter();
+		while let Some((player, _)) = iter.next().await {
 			send_player_commongame(self.arc_clone().borrow(), player).await;
+			trace!("send_to_all_active: {:?}", player);
 		}
 	}
 

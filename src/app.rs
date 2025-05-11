@@ -11,8 +11,6 @@ use http_body_util::BodyExt;
 use scc::HashMap;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
-use tower_http::cors::CorsLayer;
-use tower_http::services::{ServeDir, ServeFile};
 
 use crate::channels::parse_xml_multiple;
 use crate::router::{client_castle, countries, friends, game, help, mobil};
@@ -46,7 +44,6 @@ impl SharedPlayerState {
 	pub async fn get_listen_ready(&self) -> bool {
 		*self.0.is_listen_ready.read().await
 	}
-
 	pub async fn set_login(&self, val: bool) {
 		*self.0.is_logged_in.write().await = val;
 	}
@@ -123,17 +120,7 @@ impl App {
 			.layer(Extension(player_channel))
 			.layer(Extension(server_command_channel));
 
-		let file_cors = CorsLayer::new()
-			.allow_methods([Method::GET, Method::POST, Method::OPTIONS]) // Allow specific HTTP methods
-			.allow_headers(tower_http::cors::Any)
-			.allow_origin(tower_http::cors::Any);
-
-		let file_router = Router::new().nest_service(
-			"/",
-			ServeDir::new("/home/xrtxn/programming/honfoglalo_classic_server/files"),
-		);
-
-		let merged = app.merge(game_router).merge(file_router).layer(file_cors);
+		let merged = app.merge(game_router);
 
 		let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
 		axum::serve(listener, merged.into_make_service())
