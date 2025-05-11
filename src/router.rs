@@ -212,17 +212,12 @@ pub async fn game(
 			}
 		}
 		BodyChannelType::Listen(lis) => {
-			dbg!("listen: {:?}", &lis);
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
 
 			player_state.set_listen_ready(ser.listen.is_ready).await;
 
-			while !player_state.get_listen_ready().await {
-				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-				dbg!("waiting for listen ready");
-			}
+			//I don't know why we don't need to wait for player to be ready but it works like this
 
-			trace!("listen state is {}", player_state.get_listen_ready().await);
 			if !player_state.get_login().await {
 				player_state.set_login(true).await;
 				player_state.set_listen_ready(false).await;
