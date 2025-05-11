@@ -32,10 +32,11 @@ impl PlayerName {
 impl From<u8> for PlayerName {
 	fn from(val: u8) -> Self {
 		match val {
+		    0 => PlayerName::Nobody,
 			1 => PlayerName::Player1,
 			2 => PlayerName::Player2,
 			3 => PlayerName::Player3,
-			_ => panic!("Invalid PlayerName value"),
+			_ => panic!("Invalid PlayerName value: {}", val),
 		}
 	}
 }
@@ -65,7 +66,7 @@ pub struct GamePlayerData {
 	pub game_count_sr: i32,
 	pub country_id: String,
 	pub castle_level: i16,
-	// this can be not existent with ,
+	// this can be not existent with `,`
 	pub custom_avatar: bool,
 	pub soldier: i16,
 	pub act_league: i16,

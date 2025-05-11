@@ -6,7 +6,11 @@ let
 in
 pkgs.mkShell {
   buildInputs = with pkgs; [
-    rust-bin.stable.latest.default # Latest stable Rust
+    (rust-bin.stable.latest.default.override {
+      extensions = [ "llvm-tools-preview" ];
+    })
+    cargo-llvm-cov
+    cargo-nextest
   ];
 
   RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.rust-src}/lib/rustlib/src/rust/library";

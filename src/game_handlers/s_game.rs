@@ -25,7 +25,8 @@ pub(crate) struct SGame {
 }
 
 mod emulation_config {
-	pub(crate) const BASE_SELECTION: bool = false;
+	//todo read from .env or similar
+	pub(crate) const BASE_SELECTION: bool = true;
 	pub(crate) const AREA_SELECTION: bool = true;
 	pub(crate) const FILL_REMAINING: bool = true;
 	pub(crate) const BATTLE: bool = false;
