@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use anyhow::bail;
 use serde::{Serialize, Serializer};
-use tracing::warn;
+use tracing::error;
 
 use super::county::County;
 use super::game::SharedTrivGame;
@@ -51,6 +51,25 @@ impl Area {
 		Ok(None)
 	}
 
+	///Conquer an area from a player
+	pub(crate) async fn conquer_area(
+		&mut self,
+		new_owner: PlayerName,
+	) -> Result<(), anyhow::Error> {
+		self.owner = new_owner;
+		self.value = match self.value {
+			AreaValue::Unoccupied => {
+				error!("Trying to conquer an unoccupied area!");
+				AreaValue::_200
+			}
+			AreaValue::_1000 => AreaValue::_1000,
+			AreaValue::_400 => AreaValue::_400,
+			AreaValue::_300 => AreaValue::_400,
+			AreaValue::_200 => AreaValue::_300,
+		};
+		Ok(())
+	}
+
 	pub(crate) async fn base_selected(
 		game: SharedTrivGame,
 		player: PlayerName,
@@ -78,7 +97,7 @@ impl Area {
 			};
 			Self::modify_area(game, (county, base)).await?;
 		} else {
-			warn!("Trying to occupy None county!")
+			error!("Trying to occupy None county!")
 		}
 
 		Ok(())
@@ -148,6 +167,10 @@ impl Areas {
 
 	pub(crate) fn get_area(&self, available_county: &County) -> Option<&Area> {
 		self.0.get(available_county)
+	}
+
+	pub(crate) fn get_area_mut(&mut self, available_county: &County) -> Option<&mut Area> {
+		self.0.get_mut(available_county)
 	}
 
 	pub fn serialize(&self) -> String {

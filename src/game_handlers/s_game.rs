@@ -152,37 +152,37 @@ impl SGame {
 		} else {
 			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
 			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
-			let wo = WarOrder::from(vec![1, 2, 3, 3, 2, 1]);
+			let wo = WarOrder::from(vec![2, 3, 2, 3, 2, 1, 1]);
 			self.game.write().await.state.war_order = Some(wo.clone());
 
 			// setup battle handler
 			self.game.write().await.state.active_player = None;
 			battle_handler.setup().await;
+
+			self.game.write().await.state.round_info = RoundInfo {
+				mini_phase_num: 0,
+				active_player: *wo.get_next_players(0, 1).unwrap().first().unwrap(),
+				attacked_player: Some(PlayerName::Nobody),
+			};
+			// announcement for all players
+			battle_handler.announcement().await;
+
 			let mut mini_phase_counter = 0;
 			for _ in 0..6 {
-				self.game.write().await.state.round_info = RoundInfo {
-					mini_phase_num: 0,
-					active_player: *wo.get_next_players(0, 1).unwrap().first().unwrap(),
-					attacked_player: Some(PlayerName::Nobody),
-				};
-				// announcement for all players
-				battle_handler.announcement().await;
-
 				// let everyone attack
 				for player in wo
 					.get_next_players(mini_phase_counter, Self::PLAYER_COUNT)
 					.unwrap()
 				{
 					self.game.write().await.state.active_player = Some(player);
-					battle_handler.ask_attacking_area().await;
-					battle_handler.attacked_area_response().await;
-					battle_handler.question().await;
-					battle_handler.optional_tip_question().await;
+					battle_handler.handle_attacking().await;
 				}
 
 				battle_handler.send_updated_state().await;
+
 				self.game.write().await.state.game_state.round += 1;
 				self.game.write().await.state.round_info.mini_phase_num = 1;
+
 				mini_phase_counter += Self::PLAYER_COUNT;
 			}
 		}
@@ -267,16 +267,31 @@ impl GamePlayerInfo {
 		self.0.get_mut(&player).unwrap()
 	}
 
-	pub(crate) fn players_iter(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+	pub(crate) fn players_stream(
+		&self,
+	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0)
 	}
 
-	pub(crate) fn active_iter(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+	/// Returns a stream of active players (not robots)
+	pub(crate) fn active_stream(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0).filter(|(_, info)| info.is_player())
 	}
 
-	pub(crate) fn inactive_iter(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+	/// Returns a stream of inactive players (robots)
+	pub(crate) fn inactive_stream(
+		&self,
+	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0).filter(|(_, info)| !info.is_player())
+	}
+
+	/// Returns a vector of active players
+	pub(crate) fn players_list(&self) -> Vec<PlayerName> {
+		self.0
+			.iter()
+			.filter(|(_, info)| info.is_player())
+			.map(|(player, _)| player.clone())
+			.collect()
 	}
 }
 

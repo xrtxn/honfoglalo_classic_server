@@ -1,12 +1,15 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
+use futures::future;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
 use tokio::sync::RwLock;
+use tokio::time::timeout;
 use tokio_stream::StreamExt;
-use tracing::trace;
+use tracing::{error, trace};
 
 use super::areas::Areas;
 use super::available_area::AvailableAreas;
@@ -64,24 +67,89 @@ impl SharedTrivGame {
 		channel.unwrap().command_channel.recv_message().await
 	}
 
-	// todo truly async send these
+	//todo clean up this function
 	pub(crate) async fn wait_for_all_active(&self) {
-		for (player, _) in self
+		// Collect all players first so we can release the read lock
+		let active_players: Vec<PlayerName> = self
 			.read()
 			.await
 			.utils
 			.0
 			.iter()
 			.filter(|(_, info)| info.is_player())
-		{
-			wait_for_game_ready(self.arc_clone().borrow(), player).await;
-		}
+			.map(|(player, _)| player.clone())
+			.collect();
+
+		// Create a future for each player with timeout and wait for all concurrently
+		let futures = active_players
+			.into_iter()
+			.map(|player| {
+				let game_ref = self.arc_clone();
+				let player_name = player.clone();
+				async move {
+					match timeout(
+						Duration::from_secs(7),
+						wait_for_game_ready(game_ref.borrow(), &player),
+					)
+					.await
+					{
+						Ok(_) => {
+							// Player responded within timeout
+						}
+						Err(_) => {
+							error!(
+								"Player {:?} did not respond within 7 seconds timeout",
+								player_name
+							);
+							trace!("State: {:?}", game_ref.read().await.state.game_state);
+						}
+					}
+				}
+			})
+			.collect::<Vec<_>>();
+
+		future::join_all(futures).await;
+	}
+
+	//todo clean up this function
+	pub(crate) async fn wait_for_players(&self, players: Vec<PlayerName>) {
+		let active_players = self.read().await.utils.players_list();
+
+		// Create a future for each active player with timeout and wait for all concurrently
+		let futures = players
+			.iter()
+			.filter(|player| active_players.contains(player))
+			.map(|player| {
+				let game_ref = self.arc_clone();
+				async move {
+					match timeout(
+						Duration::from_secs(7),
+						wait_for_game_ready(game_ref.borrow(), &player),
+					)
+					.await
+					{
+						Ok(_) => {
+							// Player responded within timeout
+						}
+						Err(_) => {
+							error!(
+								"Player {:?} did not respond within 7 seconds timeout",
+								player
+							);
+							trace!("State: {:?}", game_ref.read().await.state.game_state);
+						}
+					}
+				}
+			})
+			.collect::<Vec<_>>();
+
+		future::join_all(futures).await;
 	}
 
 	pub(crate) async fn send_to_all_active(&self) {
 		// this avoids a deadlock
 		let utils = self.read().await.utils.clone();
-		let mut iter = utils.active_iter();
+		let mut iter = utils.active_stream();
 		while let Some((player, _)) = iter.next().await {
 			send_player_commongame(self.arc_clone().borrow(), player).await;
 			trace!("send_to_all_active: {:?}", player);

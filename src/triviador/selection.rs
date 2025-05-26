@@ -27,6 +27,10 @@ impl Selection {
 		self.counties.insert(player, county);
 	}
 
+	pub fn get_selection(&self, player: &PlayerName) -> Option<&County> {
+		self.counties.get(player)
+	}
+
 	pub fn serialize_full(&self) -> Result<String, anyhow::Error> {
 		let mut serialized = String::with_capacity(6);
 		// start from 1 because we don't want the 0 value County

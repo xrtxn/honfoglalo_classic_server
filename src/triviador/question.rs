@@ -121,7 +121,7 @@ impl Emulator for Question {
 	}
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct QuestionAnswerResult {
 	#[serde(rename = "@PLAYER1")]
 	pub player1: Option<u8>,
@@ -143,7 +143,7 @@ impl QuestionAnswerResult {
 		}
 	}
 
-	pub(crate) fn set_player(&mut self, rel_id: &PlayerName, player_answer: u8) {
+	pub(crate) fn set_player_answer(&mut self, rel_id: &PlayerName, player_answer: u8) {
 		match rel_id {
 			PlayerName::Nobody => error!("PlayerName::Nobody can't answer"),
 			PlayerName::Player1 => self.player1 = Some(player_answer),
@@ -152,13 +152,13 @@ impl QuestionAnswerResult {
 		}
 	}
 
-	pub(crate) fn get_player(&self, player: &PlayerName) -> Option<u8> {
+	pub(crate) fn get_player_answer(&self, player: &PlayerName) -> Option<u8> {
 		match player {
 			PlayerName::Player1 => self.player1,
 			PlayerName::Player2 => self.player2,
 			PlayerName::Player3 => self.player3,
 			_ => {
-				error!("Unable to get player answer, invalid player: {}", player);
+				error!("Unable to get player answer, invalid player: {:?}", player);
 				None
 			}
 		}
@@ -172,7 +172,7 @@ impl QuestionAnswerResult {
 			}
 			Some(_) => self.good.unwrap(),
 		};
-		match self.get_player(player) {
+		match self.get_player_answer(player) {
 			Some(player_answer) => player_answer == correct_answer,
 			None => false,
 		}
@@ -212,18 +212,15 @@ impl TipStageResponse {
 		good: i32,
 	) -> TipStageResponse {
 		let mut results: HashMap<PlayerName, i32> = HashMap::new();
-		results.insert(
-			PlayerName::Player1,
-			TipInfo::difference(good, tip_info.player_1_tip.unwrap()),
-		);
-		results.insert(
-			PlayerName::Player2,
-			TipInfo::difference(good, tip_info.player_2_tip.unwrap()),
-		);
-		results.insert(
-			PlayerName::Player3,
-			TipInfo::difference(good, tip_info.player_3_tip.unwrap()),
-		);
+		if let Some(tip) = tip_info.player_1_tip {
+			results.insert(PlayerName::Player1, TipInfo::difference(good, tip));
+		}
+		if let Some(tip) = tip_info.player_2_tip {
+			results.insert(PlayerName::Player2, TipInfo::difference(good, tip));
+		}
+		if let Some(tip) = tip_info.player_3_tip {
+			results.insert(PlayerName::Player3, TipInfo::difference(good, tip));
+		}
 
 		let mut sorted_results: Vec<_> = results.iter().collect();
 		sorted_results.sort_by(|a, b| a.1.cmp(b.1));

@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng};
 use tokio::sync::Mutex;
 use tokio::task;
 use tokio_stream::StreamExt;
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 
 use super::s_game::GamePlayerInfo;
 use crate::emulator::Emulator;
@@ -66,7 +66,12 @@ impl QuestionHandler {
 		}
 	}
 
+	pub(crate) async fn answer_result(&self) -> QuestionAnswerResult {
+		self.answer_result.clone()
+	}
+
 	pub(super) async fn send_question(&self) {
+		trace!("send_question");
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase = 4;
@@ -77,8 +82,8 @@ impl QuestionHandler {
 		}
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
-		// todo do actual work
-		while let Some((player, _)) = self.action_players.active_iter().next().await {
+		let mut iter = self.action_players.active_stream();
+		while let Some((player, _)) = iter.next().await {
 			self.game
 				.send_xml_channel(
 					&player,
@@ -91,24 +96,33 @@ impl QuestionHandler {
 				.await
 				.unwrap();
 		}
+		trace!("send_question wait before");
 		self.game.wait_for_all_active().await;
+		trace!("send_question wait after");
 	}
 
 	async fn get_question_response(&mut self) {
-		while let Some((player, _)) = self.action_players.active_iter().next().await {
+		trace!("get_question_response");
+		let mut iter = self.action_players.active_stream();
+		while let Some((player, _)) = iter.next().await {
+			trace!("get_question_response: {:?}", player);
 			match self.game.recv_command_channel(player).await.unwrap() {
 				ServerCommand::QuestionAnswer(ans) => {
-					self.answer_result.set_player(player, ans);
+					trace!("got_question_response: {:?}", player);
+					self.answer_result.set_player_answer(player, ans);
 				}
 				_ => {
+					trace!("get_question_response: {:?}", player);
 					warn!("Invalid command");
 				}
 			}
 		}
-		while let Some((player, _)) = self.action_players.inactive_iter().next().await {
+		trace!("random answer for robot");
+		let mut iter = self.action_players.inactive_stream();
+		while let Some((player, _)) = iter.next().await {
 			let mut rng = StdRng::from_entropy();
 			let random_answer: u8 = rng.gen_range(1..=4);
-			self.answer_result.set_player(player, random_answer);
+			self.answer_result.set_player_answer(player, random_answer);
 		}
 	}
 
@@ -118,6 +132,7 @@ impl QuestionHandler {
 	}
 
 	async fn send_player_answers(&mut self) {
+		trace!("send_player_answers");
 		self.answer_result.good = Some(1);
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
@@ -128,7 +143,9 @@ impl QuestionHandler {
 			}
 		}
 		let state = self.game.read().await.state.clone();
-		while let Some((player, _)) = self.action_players.active_iter().next().await {
+
+		let mut active_stream = self.action_players.active_stream();
+		while let Some((player, _)) = active_stream.next().await {
 			self.game
 				.send_xml_channel(
 					player,
@@ -141,7 +158,7 @@ impl QuestionHandler {
 				.await
 				.unwrap();
 		}
-		self.game.wait_for_all_active().await;
+		self.game.wait_for_players(self.action_players.0.keys().cloned().collect()).await;
 	}
 
 	async fn send_updated_state(&self) {
@@ -171,29 +188,17 @@ impl QuestionHandler {
 							.state
 							.available_areas
 							.push_county(*selection.get_player_county(player).unwrap());
+						// self.game.write().await.state.areas_info.get_area(County::)
 					}
 				}
+				self.game.send_to_all_active().await;
 			}
 			QuestionHandlerType::Battle => {
 				let mut write_game = self.game.write().await;
 				write_game.state.game_state.phase = 21;
-				for (player, _) in self.action_players.0.iter() {
-					if self.answer_result.is_player_correct(&player) {
-						write_game
-							.state
-							.players_points
-							.change_player_points(&player, 200);
-					} else {
-						write_game
-							.state
-							.players_points
-							.change_player_points(&player, -200);
-					}
-				}
+				// handle everything else in battle handler
 			}
 		}
-
-		self.game.send_to_all_active().await;
 	}
 }
 
@@ -248,7 +253,8 @@ impl TipHandler {
 		}
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
-		while let Some((player, _)) = self.action_players.active_iter().next().await {
+		let mut active_stream = self.action_players.active_stream();
+		while let Some((player, _)) = active_stream.next().await {
 			self.game
 				.send_xml_channel(
 					player,
@@ -311,6 +317,8 @@ impl TipHandler {
 		// Update self.tip_info after collecting all results
 		self.tip_info = tip_info.lock().await.clone();
 	}
+
+	//todo cleanup
 	async fn send_player_answers(&self) -> PlayerName {
 		// todo placeholder
 		let good = 1;
@@ -320,7 +328,8 @@ impl TipHandler {
 		let state = self.game.read().await.state.clone();
 		let tip_stage_response =
 			TipStageResponse::new_tip_result(state.clone(), self.tip_info.clone(), good);
-		while let Some((player, _)) = self.action_players.active_iter().next().await {
+		let mut active_stream = self.action_players.active_stream();
+		while let Some((player, _)) = active_stream.next().await {
 			self.game
 				.send_xml_channel(
 					player,

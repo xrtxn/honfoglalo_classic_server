@@ -35,7 +35,6 @@ impl AvailableAreas {
 				other_areas.0.insert(*county);
 			}
 		}
-		dbg!(&player_areas, &other_areas);
 		(player_areas, other_areas)
 	}
 
