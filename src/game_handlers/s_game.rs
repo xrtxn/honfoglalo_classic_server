@@ -24,7 +24,7 @@ pub(crate) struct SGame {
 	pub(crate) players: GamePlayerInfo,
 }
 
-mod emulation_config {
+pub(crate) mod emulation_config {
 	//todo read from .env or similar
 	pub(crate) const BASE_SELECTION: bool = true;
 	pub(crate) const AREA_SELECTION: bool = true;
@@ -117,6 +117,7 @@ impl SGame {
 				game_writer.state.selection.clear();
 				game_writer.state.game_state.round += 1;
 				game_writer.state.round_info.mini_phase_num = 1;
+				drop(game_writer);
 				mini_phase_counter += Self::PLAYER_COUNT;
 			}
 		}
@@ -152,7 +153,7 @@ impl SGame {
 		} else {
 			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
 			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
-			let wo = WarOrder::from(vec![2, 3, 2, 3, 2, 1, 1]);
+			let wo = WarOrder::from(vec![1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3]);
 			self.game.write().await.state.war_order = Some(wo.clone());
 
 			// setup battle handler
@@ -168,20 +169,36 @@ impl SGame {
 			battle_handler.announcement().await;
 
 			let mut mini_phase_counter = 0;
-			for _ in 0..6 {
+			for _ in 0..=wo.order.len() / Self::PLAYER_COUNT {
 				// let everyone attack
 				for player in wo
 					.get_next_players(mini_phase_counter, Self::PLAYER_COUNT)
 					.unwrap()
 				{
-					self.game.write().await.state.active_player = Some(player);
-					battle_handler.handle_attacking().await;
+					//skip eliminated players
+					if self
+						.game
+						.read()
+						.await
+						.state
+						.players_points
+						.get_player_points(&player)
+						> 0
+					{
+						let mut game_write = self.game.write().await;
+						game_write.state.round_info.mini_phase_num += 1;
+						game_write.state.active_player = Some(player);
+						drop(game_write);
+						battle_handler.handle_attacking().await;
+					} else {
+						self.game.write().await.state.round_info.mini_phase_num += 1;
+					}
 				}
 
 				battle_handler.send_updated_state().await;
 
 				self.game.write().await.state.game_state.round += 1;
-				self.game.write().await.state.round_info.mini_phase_num = 1;
+				self.game.write().await.state.round_info.mini_phase_num = 0;
 
 				mini_phase_counter += Self::PLAYER_COUNT;
 			}
@@ -225,6 +242,7 @@ impl SGameStateEmulator {
 	}
 
 	pub(super) async fn fill_remaining(game: SharedTrivGame) {
+		let mut rng = StdRng::from_entropy();
 		loop {
 			let avail = game.read().await.state.available_areas.clone();
 
@@ -232,7 +250,6 @@ impl SGameStateEmulator {
 				break;
 			}
 
-			let mut rng = StdRng::from_entropy();
 			let area = *avail.counties().iter().choose(&mut rng).unwrap();
 			Area::area_occupied(
 				game.arc_clone(),
@@ -267,6 +284,7 @@ impl GamePlayerInfo {
 		self.0.get_mut(&player).unwrap()
 	}
 
+	#[allow(dead_code)]
 	pub(crate) fn players_stream(
 		&self,
 	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
@@ -278,6 +296,7 @@ impl GamePlayerInfo {
 		tokio_stream::iter(&self.0).filter(|(_, info)| info.is_player())
 	}
 
+	#[allow(dead_code)]
 	/// Returns a stream of inactive players (robots)
 	pub(crate) fn inactive_stream(
 		&self,
@@ -292,6 +311,23 @@ impl GamePlayerInfo {
 			.filter(|(_, info)| info.is_player())
 			.map(|(player, _)| player.clone())
 			.collect()
+	}
+
+	/// Returns an iterator of active players without cloning
+	pub(crate) fn active_players_list(&self) -> impl Iterator<Item = &PlayerName> {
+		self.0
+			.iter()
+			.filter(|(_, info)| info.is_player())
+			.map(|(player, _)| player)
+	}
+
+	/// Returns an iterator of inactive players without cloning
+	#[allow(dead_code)]
+	pub(crate) fn inactive_players_list(&self) -> impl Iterator<Item = &PlayerName> {
+		self.0
+			.iter()
+			.filter(|(_, info)| !info.is_player())
+			.map(|(player, _)| player)
 	}
 }
 

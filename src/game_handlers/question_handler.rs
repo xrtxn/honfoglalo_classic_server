@@ -5,7 +5,7 @@ use rand::{Rng, SeedableRng};
 use tokio::sync::Mutex;
 use tokio::task;
 use tokio_stream::StreamExt;
-use tracing::{info, trace, warn};
+use tracing::{trace, warn};
 
 use super::s_game::GamePlayerInfo;
 use crate::emulator::Emulator;
@@ -13,7 +13,7 @@ use crate::triviador::areas::Area;
 use crate::triviador::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerName;
 use crate::triviador::question::{
-	Question, QuestionAnswerResult, QuestionStageResponse, TipInfo, TipStageResponse,
+	Question, QuestionAnswerResult, QuestionStageResponse, TipInfo, TipQuestion, TipStageResponse,
 };
 use crate::users::ServerCommand;
 
@@ -40,7 +40,7 @@ pub(crate) enum QuestionHandlerType {
 pub(crate) struct QuestionHandler {
 	game: SharedTrivGame,
 	question_handler_type: QuestionHandlerType,
-	action_players: GamePlayerInfo,
+	question_players: GamePlayerInfo,
 	answer_result: QuestionAnswerResult,
 }
 
@@ -59,9 +59,9 @@ impl QuestionHandler {
 	) -> QuestionHandler {
 		let players = game.action_players().await;
 		QuestionHandler {
-			game,
+			game: game.arc_clone(),
 			question_handler_type,
-			action_players: GamePlayerInfo::from(players),
+			question_players: GamePlayerInfo::from(players),
 			answer_result: QuestionAnswerResult::new(),
 		}
 	}
@@ -82,8 +82,7 @@ impl QuestionHandler {
 		}
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
-		let mut iter = self.action_players.active_stream();
-		while let Some((player, _)) = iter.next().await {
+		for player in self.game.read().await.utils.active_players_list() {
 			self.game
 				.send_xml_channel(
 					&player,
@@ -103,8 +102,7 @@ impl QuestionHandler {
 
 	async fn get_question_response(&mut self) {
 		trace!("get_question_response");
-		let mut iter = self.action_players.active_stream();
-		while let Some((player, _)) = iter.next().await {
+		for player in self.question_players.active_players_list() {
 			trace!("get_question_response: {:?}", player);
 			match self.game.recv_command_channel(player).await.unwrap() {
 				ServerCommand::QuestionAnswer(ans) => {
@@ -118,16 +116,17 @@ impl QuestionHandler {
 			}
 		}
 		trace!("random answer for robot");
-		let mut iter = self.action_players.inactive_stream();
+		let mut iter = self.question_players.inactive_stream();
 		while let Some((player, _)) = iter.next().await {
 			let mut rng = StdRng::from_entropy();
-			let random_answer: u8 = rng.gen_range(1..=4);
+			let random_answer: u8 = rng.gen_range(1..=1);
+			// let random_answer: u8 = rng.gen_range(1..=4);
 			self.answer_result.set_player_answer(player, random_answer);
 		}
 	}
 
 	async fn send_correct_answer(&self) {
-		info!("todo but not necessary");
+		//it is unnecessary to send the correct answer number here
 		self.game.write().await.state.game_state.phase += 1;
 	}
 
@@ -143,9 +142,7 @@ impl QuestionHandler {
 			}
 		}
 		let state = self.game.read().await.state.clone();
-
-		let mut active_stream = self.action_players.active_stream();
-		while let Some((player, _)) = active_stream.next().await {
+		for player in self.game.read().await.utils.active_players_list() {
 			self.game
 				.send_xml_channel(
 					player,
@@ -158,7 +155,7 @@ impl QuestionHandler {
 				.await
 				.unwrap();
 		}
-		self.game.wait_for_players(self.action_players.0.keys().cloned().collect()).await;
+		self.game.wait_for_all_active().await;
 	}
 
 	async fn send_updated_state(&self) {
@@ -166,7 +163,7 @@ impl QuestionHandler {
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase += 1;
-				for (player, _) in self.action_players.0.iter() {
+				for (player, _) in self.question_players.0.iter() {
 					if self.answer_result.is_player_correct(&player) {
 						Area::area_occupied(
 							self.game.arc_clone(),
@@ -220,7 +217,7 @@ pub(crate) enum TipHandlerType {
 
 pub(crate) struct TipHandler {
 	game: SharedTrivGame,
-	action_players: GamePlayerInfo,
+	tip_players: GamePlayerInfo,
 	tip_handler_type: TipHandlerType,
 	tip_info: TipInfo,
 }
@@ -229,8 +226,8 @@ impl TipHandler {
 	pub(crate) async fn new(game: SharedTrivGame, stage_type: TipHandlerType) -> TipHandler {
 		let players = game.action_players().await;
 		TipHandler {
-			game,
-			action_players: GamePlayerInfo::from(players),
+			game: game.arc_clone(),
+			tip_players: GamePlayerInfo::from(players),
 			tip_handler_type: stage_type,
 			tip_info: TipInfo::new(),
 		}
@@ -251,16 +248,15 @@ impl TipHandler {
 				self.game.write().await.state.game_state.phase = 10;
 			}
 		}
-		let q = Question::emulate();
+		let tq = TipQuestion::emulate();
 		let state = self.game.read().await.state.clone();
-		let mut active_stream = self.action_players.active_stream();
-		while let Some((player, _)) = active_stream.next().await {
+		for player in self.game.read().await.utils.active_players_list() {
+			let mut tip_stage = TipStageResponse::new_tip_question(state.clone(), tq.clone());
+			if !self.tip_players.0.contains_key(player) {
+				tip_stage.cmd = None;
+			}
 			self.game
-				.send_xml_channel(
-					player,
-					quick_xml::se::to_string(&TipStageResponse::new_tip(state.clone(), q.clone()))
-						.unwrap(),
-				)
+				.send_xml_channel(player, quick_xml::se::to_string(&tip_stage).unwrap())
 				.await
 				.unwrap();
 		}
@@ -274,18 +270,18 @@ impl TipHandler {
 
 		// Spawn tasks for each player
 		let tasks: Vec<_> = self
-			.action_players
+			.tip_players
 			.0
 			.iter()
 			.map(|(player, info)| {
 				// Clone what you need outside the async move
 				let player = player.clone();
-				let info = info.clone();
+				let is_player = info.is_player();
 				let game = self.game.arc_clone();
 				let tip_info = Arc::clone(&tip_info);
 
 				task::spawn(async move {
-					if info.is_player() {
+					if is_player {
 						match game.recv_command_channel(&player).await {
 							Ok(ServerCommand::TipAnswer(ans)) => {
 								tip_info.lock().await.add_player_tip(
@@ -299,6 +295,7 @@ impl TipHandler {
 							}
 						}
 					} else {
+						tokio::time::sleep(std::time::Duration::from_millis(1234)).await; // Simulate delay for bots
 						let mut rng = StdRng::from_entropy();
 						let random_answer = rng.gen_range(1..100);
 						tip_info.lock().await.add_player_tip(
@@ -328,8 +325,7 @@ impl TipHandler {
 		let state = self.game.read().await.state.clone();
 		let tip_stage_response =
 			TipStageResponse::new_tip_result(state.clone(), self.tip_info.clone(), good);
-		let mut active_stream = self.action_players.active_stream();
-		while let Some((player, _)) = active_stream.next().await {
+		for player in self.game.read().await.utils.active_players_list() {
 			self.game
 				.send_xml_channel(
 					player,

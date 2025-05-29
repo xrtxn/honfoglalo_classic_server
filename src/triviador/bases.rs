@@ -22,8 +22,12 @@ impl Base {
 	}
 
 	#[allow(dead_code)]
-	pub fn tower_destroyed(&mut self) {
+	pub fn destroy_tower(&mut self) {
 		self.towers_destroyed += 1;
+	}
+
+	pub fn tower_count(&self) -> u8 {
+		3 - self.towers_destroyed
 	}
 
 	pub fn serialize_to_hex(&self) -> String {
@@ -61,7 +65,7 @@ pub struct Bases {
 }
 
 impl Bases {
-	pub fn serialize_full(&self) -> Result<String, anyhow::Error> {
+	pub(crate) fn serialize_full(&self) -> Result<String, anyhow::Error> {
 		let mut serialized = String::with_capacity(6);
 		for i in 1..4_u8 {
 			match self.every_base.get(&PlayerName::from(i)) {
@@ -72,13 +76,13 @@ impl Bases {
 		Ok(serialized)
 	}
 
-	pub fn all_available() -> Self {
+	pub(crate) fn all_available() -> Self {
 		Self {
 			every_base: HashMap::new(),
 		}
 	}
 
-	pub async fn add_base(
+	pub(crate) async fn add_base(
 		game: SharedTrivGame,
 		player: PlayerName,
 		base: Base,
@@ -90,6 +94,19 @@ impl Bases {
 			.every_base
 			.insert(player, base);
 		Ok(())
+	}
+
+	pub(crate) fn get_base(&self, player: &PlayerName) -> Option<&Base> {
+		self.every_base.get(player)
+	}
+
+	pub(crate) fn get_base_mut(&mut self, player: &PlayerName) -> Option<&mut Base> {
+		self.every_base.get_mut(player)
+	}
+
+	#[allow(dead_code)]
+	pub(crate) fn get_all_bases(&self) -> &HashMap<PlayerName, Base> {
+		&self.every_base
 	}
 }
 
@@ -126,8 +143,8 @@ mod tests {
 	#[test]
 	fn base_test() {
 		let mut base = Base::new(2);
-		base.tower_destroyed();
-		base.tower_destroyed();
+		base.destroy_tower();
+		base.destroy_tower();
 		assert_eq!(base.serialize_to_hex(), "82");
 		assert_eq!(Base::from_str("82").unwrap(), base);
 

@@ -188,7 +188,7 @@ pub struct TipStageResponse {
 	#[serde(rename = "CMD")]
 	pub cmd: Option<Cmd>,
 	#[serde(rename = "TIPQUESTION")]
-	pub question: Option<Question>,
+	pub tip_question: Option<TipQuestion>,
 	#[serde(rename = "TIPINFO")]
 	pub tip_info: Option<TipInfo>,
 	#[serde(rename = "TIPRESULT")]
@@ -196,11 +196,11 @@ pub struct TipStageResponse {
 }
 
 impl TipStageResponse {
-	pub(crate) fn new_tip(state: TriviadorState, question: Question) -> TipStageResponse {
+	pub(crate) fn new_tip_question(state: TriviadorState, tip_question: TipQuestion) -> TipStageResponse {
 		TipStageResponse {
 			state,
 			cmd: Some(Cmd::tip_command(15)),
-			question: Some(question),
+			tip_question: Some(tip_question),
 			tip_info: None,
 			tip_result: None,
 		}
@@ -228,7 +228,7 @@ impl TipStageResponse {
 		TipStageResponse {
 			state,
 			cmd: None,
-			question: None,
+			tip_question: None,
 			tip_info: Some(tip_info),
 			tip_result: Some(TipResult {
 				winner: *sorted_results[0].0,
@@ -317,6 +317,42 @@ impl TipInfo {
 	}
 	pub(crate) fn difference(good: i32, answer: i32) -> i32 {
 		(good - answer).abs()
+	}
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct TipQuestion {
+	#[serde(rename = "@QUESTION")]
+	pub question: String,
+	#[serde(rename = "@ALLOWMARK")]
+	pub allowmark: String,
+	#[serde(rename = "@THEME")]
+	pub theme: String,
+	#[serde(rename = "@ICON_URL")]
+	pub icon_url: String,
+	#[serde(rename = "@COLOR_CODE")]
+	pub color_code: String,
+	#[serde(rename = "@HELP")]
+	pub help: String,
+}
+
+impl TipQuestion {
+	pub(crate) fn new(question: String) -> TipQuestion {
+		TipQuestion {
+			question,
+			allowmark: "1".to_string(),
+			theme: "3".to_string(),
+			icon_url: "client/assets/icons/pokeball.png".to_string(),
+			color_code: "F3C5C3".to_string(),
+			// todo
+			help: "{}".to_string(),
+		}
+	}
+}
+
+impl Emulator for TipQuestion {
+	fn emulate() -> Self {
+		TipQuestion::new("What is the National Pokédex number of Bulbasaur, the first Pokémon listed?".to_string())
 	}
 }
 

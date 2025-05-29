@@ -38,7 +38,7 @@ pub mod response {
 	pub struct ListenResponse {
 		#[serde(rename = "L")]
 		header: ListenResponseHeader,
-		// todo - this sucks, but there is no better option for now, because xml serializing sucks
+		// this sucks, but there is no better option for now, because xml serializing sucks
 		#[serde(rename = "ROOT")]
 		message: ListenResponseType,
 	}

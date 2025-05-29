@@ -7,7 +7,7 @@ Some window management, preparing the map
 ### Phases
 Checks game phase
 #### Phase 0
-Banner announcement
+Announcement banner
 #### Phase 1
 Base selection dialog
 #### Phase 2
@@ -19,7 +19,7 @@ Empty
 ## SPREADING
 ### Phases
 #### Phase 0
-- **Round 1**: Banner announcement
+- **Round 1**: Announcement banner
 #### Phase 1
 Area selection dialog
 #### Phase 2
@@ -41,7 +41,7 @@ Empty
 > Special variable `skiptipwindows` possibly for SEMU
 ### Phases
 #### Phase 0
-todo
+Announcement banner
 #### Phase 1
 Show question
 #### Phase 3
@@ -57,7 +57,7 @@ Score change, reorder
 ## WAR - Battle
 ### Phases
 #### Phase 0
-Show banner?
+Announcement banner
 - **round == 1**: Show rounds
 #### Phase 1
 Area selection

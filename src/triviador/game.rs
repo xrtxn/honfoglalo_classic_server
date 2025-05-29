@@ -61,9 +61,9 @@ impl SharedTrivGame {
 		&self,
 		player: &PlayerName,
 	) -> Result<ServerCommand, flume::RecvError> {
-		let game = self.read().await;
-		let channel = game.utils.get_player(player).get_player_channels().clone();
-		drop(game);
+		let read_game = self.read().await;
+		let channel = read_game.utils.get_player(player).get_player_channels().clone();
+		drop(read_game);
 		channel.unwrap().command_channel.recv_message().await
 	}
 
@@ -88,7 +88,7 @@ impl SharedTrivGame {
 				let player_name = player.clone();
 				async move {
 					match timeout(
-						Duration::from_secs(7),
+						Duration::from_secs(10),
 						wait_for_game_ready(game_ref.borrow(), &player),
 					)
 					.await
@@ -98,7 +98,7 @@ impl SharedTrivGame {
 						}
 						Err(_) => {
 							error!(
-								"Player {:?} did not respond within 7 seconds timeout",
+								"Player {:?} did not respond within 10 seconds timeout",
 								player_name
 							);
 							trace!("State: {:?}", game_ref.read().await.state.game_state);
@@ -123,7 +123,7 @@ impl SharedTrivGame {
 				let game_ref = self.arc_clone();
 				async move {
 					match timeout(
-						Duration::from_secs(7),
+						Duration::from_secs(10),
 						wait_for_game_ready(game_ref.borrow(), &player),
 					)
 					.await
@@ -133,7 +133,7 @@ impl SharedTrivGame {
 						}
 						Err(_) => {
 							error!(
-								"Player {:?} did not respond within 7 seconds timeout",
+								"Player {:?} did not respond within 10 seconds timeout",
 								player
 							);
 							trace!("State: {:?}", game_ref.read().await.state.game_state);

@@ -28,8 +28,16 @@ use crate::users::ServerCommand;
 // sends answerresult
 // 4,1,10..
 // OptionalTipQuestion,
+// 4,1,15
+// DestroyTower,
 // 4,1,21
 // SendUpdatedState,
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AttackType {
+	Basic,
+	Castle,
+}
 
 pub(crate) struct BattleHandler {
 	game: SharedTrivGame,
@@ -37,6 +45,7 @@ pub(crate) struct BattleHandler {
 	defender: PlayerName,
 	answer_result: QuestionAnswerResult,
 	winner: Option<PlayerName>,
+	attack_type: AttackType,
 }
 
 impl BattleHandler {
@@ -47,73 +56,24 @@ impl BattleHandler {
 			winner: None,
 			attacker: PlayerName::Nobody,
 			defender: PlayerName::Nobody,
+			attack_type: AttackType::Basic,
 		}
 	}
 
 	pub(super) async fn handle_attacking(&mut self) {
 		self.ask_attacking_area().await;
 		self.attacked_area_response().await;
-		self.question().await;
-		// Show tip question only if all players answered correctly
-		if self.answer_result.is_player_correct(&self.attacker)
-			&& self.answer_result.is_player_correct(&self.defender)
-		{
-			self.winner = Some(self.optional_tip_question().await);
-		} else {
-			self.winner = if self.answer_result.is_player_correct(&self.attacker) {
-				Some(self.attacker.clone())
-			} else if self.answer_result.is_player_correct(&self.defender) {
-				Some(self.defender.clone())
-			} else {
-				None
-			};
-		}
 
-		match self.winner {
-			Some(win) => {
-				let mut game_write = self.game.write().await;
-				if self.attacker == win {
-					//todo not 200 points
-					game_write
-						.state
-						.players_points
-						.change_player_points(&self.attacker, 200);
-					game_write
-						.state
-						.players_points
-						.change_player_points(&self.defender, -200);
-					dbg!(game_write.state.selection.clone());
-					let sel = &game_write
-						.state
-						.selection
-						.get_selection(&self.attacker)
-						.expect("Attacker has no areas selected")
-						.clone();
-
-					trace!("Attacker selected area: {:?}", sel);
-
-					let area = game_write
-						.state
-						.areas_info
-						.get_area_mut(&sel)
-						.expect("Area not found");
-					area.conquer_area(self.attacker.clone())
-						.await
-						.expect("Failed to conquer area");
-				} else {
-					game_write
-						.state
-						.players_points
-						.change_player_points(&self.defender, 100);
-				};
+		match self.attack_type {
+			AttackType::Basic => {
+				self.question().await;
+				self.winner = self.decide_winner().await;
+				self.basic_battle_decision().await;
 			}
-			None => (),
+			AttackType::Castle => {
+				self.castle_battle_decision().await;
+			}
 		}
-
-		let mut write_game = self.game.write().await;
-		write_game.state.game_state.phase = 21;
-
-		drop(write_game);
 
 		self.game.send_to_all_active().await;
 		self.game.wait_for_all_active().await;
@@ -132,16 +92,13 @@ impl BattleHandler {
 	pub(super) async fn announcement(&self) {
 		self.game.write().await.state.game_state.phase = 0;
 		self.game.send_to_all_active().await;
-		trace!("Battle announcement waiting");
 		self.game.wait_for_all_active().await;
-		trace!("Battle announcement game ready");
 	}
 
 	pub(super) async fn ask_attacking_area(&self) {
 		let mut write_game = self.game.write().await;
 		let active_player = write_game.state.active_player.clone().unwrap();
 		write_game.state.game_state.phase = 1;
-		write_game.state.round_info.mini_phase_num += 1;
 		write_game.state.selection.clear();
 		write_game.state.round_info.active_player = active_player;
 		write_game.state.round_info.attacked_player = Some(PlayerName::Nobody);
@@ -168,9 +125,7 @@ impl BattleHandler {
 			.await;
 		}
 		self.game.send_to_all_active().await;
-		trace!("Send select cmd waiting");
 		self.game.wait_for_all_active().await;
-		trace!("Send select cmd game ready");
 	}
 
 	pub(super) async fn attacked_area_response(&mut self) {
@@ -195,15 +150,21 @@ impl BattleHandler {
 					self.new_area_selected(val, active_player).await;
 					let readgame = self.game.read().await;
 					let areas_info = readgame.state.areas_info.clone();
-					let attacked_rel_id = areas_info.get_area(&County::try_from(val).unwrap());
+					let attacked = areas_info.get_area(&County::try_from(val).unwrap());
 					drop(readgame);
-					let attacked_player = attacked_rel_id
-                        .map(|x| x.owner.clone())
-                        .unwrap_or(PlayerName::Nobody);
-					self.game.write().await.state.round_info.attacked_player = Some(attacked_player);
+					let attacked_player = attacked
+						.map(|x| x.owner.clone())
+						.unwrap_or(PlayerName::Nobody);
+					self.game.write().await.state.round_info.attacked_player =
+						Some(attacked_player);
 
 					self.attacker = active_player.clone();
 					self.defender = attacked_player.clone();
+					self.attack_type = if attacked.unwrap().is_castle() {
+						AttackType::Castle
+					} else {
+						AttackType::Basic
+					};
 				}
 				_ => {
 					warn!("Invalid command");
@@ -216,27 +177,45 @@ impl BattleHandler {
 
 			// Get the game state and find the owner of the selected area
 			let game_read = self.game.read().await;
-			let attacked = game_read.state.areas_info.get_area(random_area);
-			let attacked_player = attacked.map(|x| x.owner.clone());
+			let attacked = game_read
+				.state
+				.areas_info
+				.get_area(random_area)
+				.expect("Can't pick random area")
+				.clone();
+
+			drop(game_read);
 			//todo unify this
 			self.attacker = active_player.clone();
-			self.defender = attacked_player.clone().unwrap_or(PlayerName::Nobody);
-			drop(game_read);
+			self.defender = attacked.owner;
+
+			self.attack_type = if !attacked.is_castle() {
+				AttackType::Basic
+			} else if self
+				.game
+				.read()
+				.await
+				.state
+				.base_info
+				.get_base(&self.defender)
+				.unwrap()
+				.tower_count()
+				== 0
+			{
+				AttackType::Basic
+			} else {
+				AttackType::Castle
+			};
 
 			// Update the attacked player in the game state
-			self.game.write().await.state.round_info.attacked_player = attacked_player;
-			trace!("Adding selection for player: {:?}", active_player);
-			self.game
-				.write()
-				.await
+			let mut game_write = self.game.write().await;
+			game_write.state.round_info.attacked_player = Some(attacked.owner.clone());
+			game_write
 				.state
 				.selection
 				.add_selection(active_player, *random_area);
 			trace!("Random area selected: {:?}", random_area);
-			trace!(
-				"Selection added for player: {:?}",
-				self.game.read().await.state.selection
-			);
+			drop(game_write);
 
 			self.new_area_selected(*random_area as u8, active_player)
 				.await;
@@ -244,10 +223,9 @@ impl BattleHandler {
 		self.game.write().await.state.game_state.phase = 3;
 
 		self.game.send_to_all_active().await;
-		trace!("Common game ready waiting");
-		// self.game
-		// 	.wait_for_players(vec![self.attacker, self.defender]).await;
-		trace!("Common game ready");
+		self.game
+			.wait_for_players(vec![self.attacker, self.defender])
+			.await;
 	}
 
 	pub(super) async fn question(&mut self) {
@@ -261,6 +239,21 @@ impl BattleHandler {
 		th.handle_all().await
 	}
 
+	pub(super) async fn tower_destroy(&self) {
+		let mut write_game = self.game.write().await;
+		write_game
+			.state
+			.base_info
+			.get_base_mut(&self.defender)
+			.map(|b| {
+				b.destroy_tower();
+			});
+		write_game.state.game_state.phase = 15;
+		drop(write_game);
+		self.game.send_to_all_active().await;
+		self.game.wait_for_all_active().await;
+	}
+
 	pub(super) async fn send_updated_state(&self) {
 		self.game.wait_for_all_active().await;
 	}
@@ -272,5 +265,123 @@ impl BattleHandler {
 			.state
 			.selection
 			.add_selection(player, County::try_from(selected_area).unwrap());
+	}
+
+	pub(super) async fn decide_winner(&self) -> Option<PlayerName> {
+		let winner;
+		// Show tip question only if all players answered correctly
+		if self.answer_result.is_player_correct(&self.attacker)
+			&& self.answer_result.is_player_correct(&self.defender)
+		{
+			winner = Some(self.optional_tip_question().await);
+		} else {
+			winner = if self.answer_result.is_player_correct(&self.attacker) {
+				Some(self.attacker.clone())
+			} else if self.answer_result.is_player_correct(&self.defender) {
+				Some(self.defender.clone())
+			} else {
+				None
+			};
+		}
+		winner
+	}
+
+	pub(super) async fn basic_battle_decision(&self) {
+		if let Some(win) = self.winner {
+			let mut game_write = self.game.write().await;
+			if self.attacker == win {
+				let sel = game_write
+					.state
+					.selection
+					.get_selection(&self.attacker)
+					.expect("Attacker has no areas selected")
+					.clone();
+
+				let area = game_write
+					.state
+					.areas_info
+					.get_area(&sel)
+					.expect("Area not found after conquering")
+					.clone();
+
+				// Change points before upgrading (conquering) area
+				game_write.state.players_points.change_player_points(
+					&self.attacker,
+					area.get_upgrade_value().get_points() as i16,
+				);
+
+				game_write
+					.state
+					.players_points
+					.change_player_points(&self.defender, -(area.get_value().get_points() as i16));
+
+				game_write
+					.state
+					.areas_info
+					.get_area_mut(&sel)
+					.expect("Area not found")
+					.conquer_area(self.attacker.clone())
+					.await
+					.expect("Failed to conquer area");
+			} else {
+				game_write
+					.state
+					.players_points
+					.change_player_points(&self.defender, 100);
+			};
+		}
+
+		self.game.write().await.state.game_state.phase = 21;
+	}
+
+	pub(super) async fn castle_battle_decision(&mut self) {
+		'castle_loop: loop {
+			let tower_count = self
+				.game
+				.read()
+				.await
+				.state
+				.base_info
+				.get_base(&self.defender)
+				.unwrap()
+				.tower_count();
+			if tower_count >= 1 {
+				self.question().await;
+				self.winner = self.decide_winner().await;
+				match self.winner {
+					Some(winner) => {
+						if winner == self.attacker {
+							self.tower_destroy().await;
+						} else {
+							self.game
+								.write()
+								.await
+								.state
+								.players_points
+								.change_player_points(&self.defender, 100);
+							break 'castle_loop;
+						}
+					}
+					None => break 'castle_loop,
+				}
+			} else {
+				let mut game_write = self.game.write().await;
+				let points_change = game_write
+					.state
+					.areas_info
+					.conquer_base_areas(self.defender, self.attacker)
+					.await;
+				game_write
+					.state
+					.players_points
+					.change_player_points(&self.attacker, points_change as i16);
+				game_write
+					.state
+					.players_points
+					.set_player_points(&self.defender, 0);
+				break 'castle_loop;
+			}
+		}
+		self.game.write().await.state.game_state.phase = 21;
 	}
 }

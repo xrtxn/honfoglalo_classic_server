@@ -25,6 +25,10 @@ impl PlayerPoints {
 		let old_points = self.0.get_mut(rel_id).unwrap();
 		*old_points += by;
 	}
+
+	pub(crate) fn get_player_points(&self, rel_id: &PlayerName) -> i16 {
+        *self.0.get(rel_id).unwrap()
+    }
 }
 
 impl Serialize for PlayerPoints {

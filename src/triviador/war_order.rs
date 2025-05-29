@@ -1,5 +1,6 @@
-use rand::prelude::SliceRandom;
-use rand::thread_rng;
+use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
+use rand::SeedableRng;
 use serde::{Serialize, Serializer};
 use tracing::error;
 
@@ -15,6 +16,7 @@ pub struct WarOrder {
 impl WarOrder {
 	pub const NORMAL_ROUND_COUNT: u8 = 6;
 	pub(crate) fn new_random_with_size(mut round_count: u8) -> WarOrder {
+		let mut rng = StdRng::from_entropy();
 		if round_count > 6 {
 			error!("Round count can't be more than 6, consider splitting it to multiple states");
 			round_count = 6;
@@ -26,7 +28,7 @@ impl WarOrder {
 				PlayerName::Player2,
 				PlayerName::Player3,
 			];
-			vec.shuffle(&mut thread_rng());
+			vec.shuffle(&mut rng);
 			order.append(&mut vec);
 		}
 		WarOrder { order }

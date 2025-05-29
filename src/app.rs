@@ -41,6 +41,7 @@ impl SharedPlayerState {
 	pub async fn get_login(&self) -> bool {
 		*self.0.is_logged_in.read().await
 	}
+	#[allow(dead_code)]
 	pub async fn get_listen_ready(&self) -> bool {
 		*self.0.is_listen_ready.read().await
 	}

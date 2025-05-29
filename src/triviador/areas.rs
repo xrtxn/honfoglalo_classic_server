@@ -18,6 +18,18 @@ pub enum AreaValue {
 	_200 = 4,
 }
 
+impl AreaValue {
+	pub(crate) fn get_points(&self) -> u16 {
+		match self {
+			AreaValue::Unoccupied => 0,
+			AreaValue::_1000 => 1000,
+			AreaValue::_400 => 400,
+			AreaValue::_300 => 300,
+			AreaValue::_200 => 200,
+		}
+	}
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Area {
 	pub(crate) owner: PlayerName,
@@ -26,7 +38,15 @@ pub struct Area {
 }
 
 impl Area {
-	pub fn serialize_to_hex(&self) -> String {
+	pub(crate) fn is_castle(&self) -> bool {
+		self.value == AreaValue::_1000
+	}
+
+	pub(crate) fn get_value(&self) -> &AreaValue {
+		&self.value
+	}
+
+	pub(crate) fn serialize_to_hex(&self) -> String {
 		let mut ac = self.owner as u8;
 		let vc = (self.value.clone() as u8) << 4;
 		ac += vc;
@@ -38,7 +58,7 @@ impl Area {
 		format!("{:02x}", ac)
 	}
 
-	pub async fn modify_area(
+	pub(super) async fn modify_area(
 		game: SharedTrivGame,
 		values: (County, Area),
 	) -> Result<Option<Area>, anyhow::Error> {
@@ -57,17 +77,34 @@ impl Area {
 		new_owner: PlayerName,
 	) -> Result<(), anyhow::Error> {
 		self.owner = new_owner;
-		self.value = match self.value {
+		self.upgrade_area();
+		Ok(())
+	}
+
+	///Conquer an area from a player
+	pub(crate) async fn conquer_area_from_base(
+		&mut self,
+		new_owner: PlayerName,
+	) -> Result<(), anyhow::Error> {
+		self.owner = new_owner;
+		Ok(())
+	}
+
+	pub(crate) fn upgrade_area(&mut self) {
+		self.value = self.get_upgrade_value();
+	}
+
+	pub(crate) fn get_upgrade_value(&self) -> AreaValue {
+		match self.value {
 			AreaValue::Unoccupied => {
-				error!("Trying to conquer an unoccupied area!");
+				error!("Trying to upgrade an unoccupied area!");
 				AreaValue::_200
 			}
 			AreaValue::_1000 => AreaValue::_1000,
-			AreaValue::_400 => AreaValue::_400,
-			AreaValue::_300 => AreaValue::_400,
 			AreaValue::_200 => AreaValue::_300,
-		};
-		Ok(())
+			AreaValue::_300 => AreaValue::_400,
+			AreaValue::_400 => AreaValue::_400,
+		}
 	}
 
 	pub(crate) async fn base_selected(
@@ -171,6 +208,25 @@ impl Areas {
 
 	pub(crate) fn get_area_mut(&mut self, available_county: &County) -> Option<&mut Area> {
 		self.0.get_mut(available_county)
+	}
+
+	/// Conquer all areas of the old owner
+	/// Returns the points amount of the conquered areas
+	pub(crate) async fn conquer_base_areas(
+		&mut self,
+		old_owner: PlayerName,
+		new_owner: PlayerName,
+	) -> u16 {
+		let mut total_points: u16 = 0;
+
+		for area in self.0.values_mut() {
+			if area.owner == old_owner {
+				total_points = total_points + area.value.get_points() as u16;
+				area.conquer_area_from_base(new_owner).await.unwrap();
+			}
+		}
+
+		total_points
 	}
 
 	pub fn serialize(&self) -> String {

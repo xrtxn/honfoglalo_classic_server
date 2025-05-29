@@ -690,7 +690,6 @@ dependencies = [
  "async-trait",
  "axum",
  "dotenvy",
- "fastrand",
  "flume",
  "futures",
  "hex",
