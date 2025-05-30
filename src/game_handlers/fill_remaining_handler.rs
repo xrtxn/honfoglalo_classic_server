@@ -82,7 +82,7 @@ impl FillRemainingHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			// let available = AvailableAreas::get_available(temp_pool, self.game_id).await;
@@ -107,7 +107,7 @@ impl FillRemainingHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			match self

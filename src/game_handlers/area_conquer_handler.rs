@@ -80,7 +80,7 @@ impl AreaConquerHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(
@@ -103,7 +103,7 @@ impl AreaConquerHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			match self

@@ -1,3 +1,4 @@
+use tokio_stream::StreamExt;
 
 use super::s_game::GamePlayerInfo;
 use crate::app::{ServerCommandChannel, XmlPlayerChannel};
@@ -57,13 +58,14 @@ impl ServerGameHandler {
 			command_channel: command_channel.clone(),
 		};
 
-		for (player, info) in server_game_players.0.iter() {
+		let mut iter = server_game_players.players_with_info_stream();
+		while let Some((player, info)) = iter.next().await {
 			game.write().await.utils.add(player.clone(), info.clone());
 			if info.is_player() {
 				game.write()
 					.await
 					.utils
-					.get_player_mut(player)
+					.get_player_mut(player).unwrap()
 					.set_channels(Some(channels.clone()));
 			}
 		}

@@ -14,6 +14,8 @@ use crate::triviador::round_info::RoundInfo;
 use crate::triviador::selection::Selection;
 use crate::triviador::shield_mission::ShieldMission;
 
+/// Represents the state of a Triviador game
+/// Expensive to clone
 #[skip_serializing_none]
 #[derive(Serialize, Debug, Clone)]
 pub(crate) struct TriviadorState {

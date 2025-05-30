@@ -114,7 +114,7 @@ impl BattleHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(
@@ -135,7 +135,7 @@ impl BattleHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(self.game.arc_clone(), &active_player, None).await;

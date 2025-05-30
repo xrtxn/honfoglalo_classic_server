@@ -265,7 +265,7 @@ impl SGameStateEmulator {
 
 #[derive(Clone, Debug)]
 // todo temporarily public field, replace with streams
-pub(crate) struct GamePlayerInfo(pub(crate) HashMap<PlayerName, SGamePlayerInfo>);
+pub(crate) struct GamePlayerInfo(HashMap<PlayerName, SGamePlayerInfo>);
 
 impl GamePlayerInfo {
 	pub(crate) fn new() -> GamePlayerInfo {
@@ -276,58 +276,43 @@ impl GamePlayerInfo {
 		self.0.insert(player, info);
 	}
 
-	pub(crate) fn get_player(&self, player: &PlayerName) -> &SGamePlayerInfo {
-		self.0.get(&player).unwrap()
+	pub(crate) fn get_player(&self, player: &PlayerName) -> Option<&SGamePlayerInfo> {
+		self.0.get(&player)
 	}
 
-	pub(crate) fn get_player_mut(&mut self, player: &PlayerName) -> &mut SGamePlayerInfo {
-		self.0.get_mut(&player).unwrap()
+	pub(crate) fn get_player_mut(&mut self, player: &PlayerName) -> Option<&mut SGamePlayerInfo> {
+		self.0.get_mut(&player)
 	}
 
-	#[allow(dead_code)]
-	pub(crate) fn players_stream(
+	pub(crate) fn players_with_info_stream(
 		&self,
 	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0)
 	}
 
+	pub(crate) fn players_stream(&self) -> impl Stream<Item = &PlayerName> + '_ {
+		tokio_stream::iter(self.0.keys())
+	}
+
+	pub(crate) fn active_players_stream(&self) -> impl Stream<Item = &PlayerName> + '_ {
+		tokio_stream::iter(&self.0)
+			.filter(|(_, info)| info.is_player())
+			.map(|(player, _)| player)
+	}
+
 	/// Returns a stream of active players (not robots)
-	pub(crate) fn active_stream(&self) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
+	pub(crate) fn active_with_info_stream(
+		&self,
+	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0).filter(|(_, info)| info.is_player())
 	}
 
 	#[allow(dead_code)]
 	/// Returns a stream of inactive players (robots)
-	pub(crate) fn inactive_stream(
+	pub(crate) fn inactive_with_info_stream(
 		&self,
 	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0).filter(|(_, info)| !info.is_player())
-	}
-
-	/// Returns a vector of active players
-	pub(crate) fn players_list(&self) -> Vec<PlayerName> {
-		self.0
-			.iter()
-			.filter(|(_, info)| info.is_player())
-			.map(|(player, _)| player.clone())
-			.collect()
-	}
-
-	/// Returns an iterator of active players without cloning
-	pub(crate) fn active_players_list(&self) -> impl Iterator<Item = &PlayerName> {
-		self.0
-			.iter()
-			.filter(|(_, info)| info.is_player())
-			.map(|(player, _)| player)
-	}
-
-	/// Returns an iterator of inactive players without cloning
-	#[allow(dead_code)]
-	pub(crate) fn inactive_players_list(&self) -> impl Iterator<Item = &PlayerName> {
-		self.0
-			.iter()
-			.filter(|(_, info)| !info.is_player())
-			.map(|(player, _)| player)
 	}
 }
 

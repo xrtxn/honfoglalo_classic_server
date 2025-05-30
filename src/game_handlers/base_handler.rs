@@ -86,7 +86,7 @@ impl BaseHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(
@@ -109,7 +109,7 @@ impl BaseHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player)
+			.get_player(&active_player).unwrap()
 			.is_player()
 		{
 			let areas = self.game.read().await.state.areas_info.clone();

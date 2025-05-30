@@ -3,7 +3,6 @@ use std::sync::Arc;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use tokio::sync::Mutex;
-use tokio::task;
 use tokio_stream::StreamExt;
 use tracing::{trace, warn};
 
@@ -82,7 +81,9 @@ impl QuestionHandler {
 		}
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
-		for player in self.game.read().await.utils.active_players_list() {
+		let utils = self.game.read().await.utils.clone();
+		let mut iter = utils.active_players_stream();
+		while let Some(player) = iter.next().await {
 			self.game
 				.send_xml_channel(
 					&player,
@@ -95,33 +96,29 @@ impl QuestionHandler {
 				.await
 				.unwrap();
 		}
-		trace!("send_question wait before");
 		self.game.wait_for_all_active().await;
-		trace!("send_question wait after");
 	}
 
 	async fn get_question_response(&mut self) {
-		trace!("get_question_response");
-		for player in self.question_players.active_players_list() {
-			trace!("get_question_response: {:?}", player);
-			match self.game.recv_command_channel(player).await.unwrap() {
-				ServerCommand::QuestionAnswer(ans) => {
-					trace!("got_question_response: {:?}", player);
-					self.answer_result.set_player_answer(player, ans);
+		let mut iter = self.question_players.players_with_info_stream();
+		while let Some((player, info)) = iter.next().await {
+			if info.is_player() {
+				match self.game.recv_command_channel(player).await.unwrap() {
+					ServerCommand::QuestionAnswer(ans) => {
+						trace!("got_question_response: {:?}", player);
+						self.answer_result.set_player_answer(player, ans);
+					}
+					_ => {
+						trace!("get_question_response: {:?}", player);
+						warn!("Invalid command");
+					}
 				}
-				_ => {
-					trace!("get_question_response: {:?}", player);
-					warn!("Invalid command");
-				}
+			} else {
+				let mut rng = StdRng::from_entropy();
+				let random_answer: u8 = rng.gen_range(1..=1);
+				// let random_answer: u8 = rng.gen_range(1..=4);
+				self.answer_result.set_player_answer(player, random_answer);
 			}
-		}
-		trace!("random answer for robot");
-		let mut iter = self.question_players.inactive_stream();
-		while let Some((player, _)) = iter.next().await {
-			let mut rng = StdRng::from_entropy();
-			let random_answer: u8 = rng.gen_range(1..=1);
-			// let random_answer: u8 = rng.gen_range(1..=4);
-			self.answer_result.set_player_answer(player, random_answer);
 		}
 	}
 
@@ -141,8 +138,11 @@ impl QuestionHandler {
 				self.game.write().await.state.game_state.phase += 1;
 			}
 		}
+		// todo find a better way than cloning this possible arc
 		let state = self.game.read().await.state.clone();
-		for player in self.game.read().await.utils.active_players_list() {
+		let utils = self.game.read().await.utils.clone();
+		let mut iter = utils.active_players_stream();
+		while let Some(player) = iter.next().await {
 			self.game
 				.send_xml_channel(
 					player,
@@ -163,7 +163,8 @@ impl QuestionHandler {
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase += 1;
-				for (player, _) in self.question_players.0.iter() {
+				let mut iter = self.question_players.active_players_stream();
+				while let Some(player) = iter.next().await {
 					if self.answer_result.is_player_correct(&player) {
 						Area::area_occupied(
 							self.game.arc_clone(),
@@ -185,7 +186,6 @@ impl QuestionHandler {
 							.state
 							.available_areas
 							.push_county(*selection.get_player_county(player).unwrap());
-						// self.game.write().await.state.areas_info.get_area(County::)
 					}
 				}
 				self.game.send_to_all_active().await;
@@ -250,11 +250,14 @@ impl TipHandler {
 		}
 		let tq = TipQuestion::emulate();
 		let state = self.game.read().await.state.clone();
-		for player in self.game.read().await.utils.active_players_list() {
+		let utils = self.game.read().await.utils.clone();
+		let mut iter = utils.active_players_stream();
+		while let Some(player) = iter.next().await {
 			let mut tip_stage = TipStageResponse::new_tip_question(state.clone(), tq.clone());
-			if !self.tip_players.0.contains_key(player) {
+			if self.tip_players.get_player(&player).is_none() {
 				tip_stage.cmd = None;
 			}
+
 			self.game
 				.send_xml_channel(player, quick_xml::se::to_string(&tip_stage).unwrap())
 				.await
@@ -263,53 +266,49 @@ impl TipHandler {
 		self.game.wait_for_all_active().await;
 	}
 
-	// todo review this
+	// todo fix elapsed time
 	async fn get_tip_response(&mut self) {
 		let start = std::time::Instant::now();
 		let tip_info = Arc::new(Mutex::new(self.tip_info.clone()));
 
-		// Spawn tasks for each player
-		let tasks: Vec<_> = self
-			.tip_players
-			.0
-			.iter()
-			.map(|(player, info)| {
-				// Clone what you need outside the async move
-				let player = player.clone();
-				let is_player = info.is_player();
-				let game = self.game.arc_clone();
-				let tip_info = Arc::clone(&tip_info);
+		let mut join_handles = Vec::new();
 
-				task::spawn(async move {
-					if is_player {
-						match game.recv_command_channel(&player).await {
-							Ok(ServerCommand::TipAnswer(ans)) => {
-								tip_info.lock().await.add_player_tip(
-									player,
-									ans,
-									start.elapsed().as_secs_f32(),
-								);
-							}
-							_ => {
-								todo!();
-							}
+		let mut iter = self.tip_players.players_stream();
+		while let Some(player) = iter.next().await {
+			let game = self.game.arc_clone();
+			let is_player = self.tip_players.get_player(&player).unwrap().is_player();
+			let tip_info = Arc::clone(&tip_info);
+			let player = *player;
+
+			let handle = tokio::spawn(async move {
+				if is_player {
+					match game.recv_command_channel(&player).await {
+						Ok(ServerCommand::TipAnswer(ans)) => {
+							tip_info.lock().await.add_player_tip(
+								player,
+								ans,
+								start.elapsed().as_secs_f32(),
+							);
 						}
-					} else {
-						tokio::time::sleep(std::time::Duration::from_millis(1234)).await; // Simulate delay for bots
-						let mut rng = StdRng::from_entropy();
-						let random_answer = rng.gen_range(1..100);
-						tip_info.lock().await.add_player_tip(
-							player,
-							random_answer,
-							start.elapsed().as_secs_f32(),
-						);
+						_ => {
+							todo!();
+						}
 					}
-				})
-			})
-			.collect();
+				} else {
+					tokio::time::sleep(std::time::Duration::from_millis(1234)).await; // Simulate delay for bots
+					let mut rng = StdRng::from_entropy();
+					let random_answer = rng.gen_range(1..100);
+					tip_info.lock().await.add_player_tip(
+						player,
+						random_answer,
+						start.elapsed().as_secs_f32(),
+					);
+				}
+			});
+			join_handles.push(handle);
+		}
 
-		// Wait for all tasks to finish
-		futures::future::join_all(tasks).await;
+		futures::future::join_all(join_handles).await;
 
 		// Update self.tip_info after collecting all results
 		self.tip_info = tip_info.lock().await.clone();
@@ -325,7 +324,9 @@ impl TipHandler {
 		let state = self.game.read().await.state.clone();
 		let tip_stage_response =
 			TipStageResponse::new_tip_result(state.clone(), self.tip_info.clone(), good);
-		for player in self.game.read().await.utils.active_players_list() {
+		let utils = self.game.read().await.utils.clone();
+		let mut iter = utils.active_players_stream();
+		while let Some(player) = iter.next().await {
 			self.game
 				.send_xml_channel(
 					player,

@@ -51,6 +51,7 @@ impl Cmd {
 			.await
 			.utils
 			.get_player_mut(player_id)
+			.unwrap()
 			.set_cmd(cmd);
 	}
 }
