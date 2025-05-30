@@ -114,7 +114,8 @@ impl BattleHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player).unwrap()
+			.get_player(&active_player)
+			.unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(
@@ -135,7 +136,8 @@ impl BattleHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player).unwrap()
+			.get_player(&active_player)
+			.unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(self.game.arc_clone(), &active_player, None).await;
@@ -160,10 +162,21 @@ impl BattleHandler {
 
 					self.attacker = active_player.clone();
 					self.defender = attacked_player.clone();
-					self.attack_type = if attacked.unwrap().is_castle() {
-						AttackType::Castle
-					} else {
+					self.attack_type = if !attacked.unwrap().is_castle() {
 						AttackType::Basic
+					} else if self
+						.game
+						.read()
+						.await
+						.state
+						.base_info
+						.get_base(&self.defender)
+						.unwrap()
+						.tower_count() == 0
+					{
+						AttackType::Basic
+					} else {
+						AttackType::Castle
 					};
 				}
 				_ => {
@@ -371,6 +384,10 @@ impl BattleHandler {
 					.areas_info
 					.conquer_base_areas(self.defender, self.attacker)
 					.await;
+				game_write
+					.state
+					.eliminated_players
+					.push(self.defender.clone());
 				game_write
 					.state
 					.players_points

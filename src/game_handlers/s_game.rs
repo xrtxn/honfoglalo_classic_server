@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
 use tokio_stream::{Stream, StreamExt};
-use tracing::trace;
+use tracing::{info, trace, warn};
 
 use crate::game_handlers::area_conquer_handler::AreaConquerHandler;
 use crate::game_handlers::base_handler::BaseHandler;
@@ -18,6 +18,8 @@ use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::triviador::triviador_state::GamePlayerChannels;
 use crate::triviador::war_order::WarOrder;
+
+use super::endscreen_handler::EndScreenHandler;
 
 pub(crate) struct SGame {
 	game: SharedTrivGame,
@@ -48,6 +50,7 @@ impl SGame {
 		self.area_selection().await;
 		self.fill_remaining().await;
 		self.battle().await;
+		self.end_screen().await;
 	}
 
 	async fn setup(&self) {
@@ -149,7 +152,7 @@ impl SGame {
 
 	async fn battle(&mut self) {
 		if emulation_config::BATTLE {
-			todo!("add battle emu");
+			warn!("add battle emu");
 		} else {
 			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
 			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
@@ -169,27 +172,34 @@ impl SGame {
 			battle_handler.announcement().await;
 
 			let mut mini_phase_counter = 0;
-			for _ in 0..=wo.order.len() / Self::PLAYER_COUNT {
-				// let everyone attack
+			'war_loop: for _ in 0..=wo.order.len() / Self::PLAYER_COUNT {
+				// let everyone attack in order
 				for player in wo
 					.get_next_players(mini_phase_counter, Self::PLAYER_COUNT)
 					.unwrap()
 				{
+					// check if only one player is left
+					if self.game.read().await.state.eliminated_players.len()
+						>= Self::PLAYER_COUNT - 1
+					{
+						info!("All players are eliminated, ending game");
+						break 'war_loop;
+					}
 					//skip eliminated players
-					if self
+					if !self
 						.game
 						.read()
 						.await
 						.state
-						.players_points
-						.get_player_points(&player)
-						> 0
+						.eliminated_players
+						.contains(&player)
 					{
 						let mut game_write = self.game.write().await;
 						game_write.state.round_info.mini_phase_num += 1;
 						game_write.state.active_player = Some(player);
 						drop(game_write);
 						battle_handler.handle_attacking().await;
+						break 'war_loop;
 					} else {
 						self.game.write().await.state.round_info.mini_phase_num += 1;
 					}
@@ -203,6 +213,11 @@ impl SGame {
 				mini_phase_counter += Self::PLAYER_COUNT;
 			}
 		}
+	}
+
+	async fn end_screen(&self) {
+		let end_screen_handler = EndScreenHandler::new(self.game.arc_clone());
+		end_screen_handler.handle_all().await;
 	}
 }
 
@@ -264,7 +279,6 @@ impl SGameStateEmulator {
 }
 
 #[derive(Clone, Debug)]
-// todo temporarily public field, replace with streams
 pub(crate) struct GamePlayerInfo(HashMap<PlayerName, SGamePlayerInfo>);
 
 impl GamePlayerInfo {

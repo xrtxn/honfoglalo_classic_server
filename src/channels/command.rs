@@ -43,6 +43,8 @@ pub mod request {
 		GetExternalData(ExtDataRequest),
 		#[serde(rename = "EXITROOM")]
 		ExitCurrentRoom(ExitCurrentRoom),
+		#[serde(rename = "CLOSEGAME")]
+		CloseGame,
 		#[serde(rename = "ADDSEPROOM")]
 		AddFriendlyRoom(AddFriendlyRoom),
 		#[serde(rename = "STARTSEPROOM")]

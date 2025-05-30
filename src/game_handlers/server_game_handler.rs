@@ -1,4 +1,5 @@
 use tokio_stream::StreamExt;
+use tracing::info;
 
 use super::s_game::GamePlayerInfo;
 use crate::app::{ServerCommandChannel, XmlPlayerChannel};
@@ -65,10 +66,12 @@ impl ServerGameHandler {
 				game.write()
 					.await
 					.utils
-					.get_player_mut(player).unwrap()
+					.get_player_mut(player)
+					.unwrap()
 					.set_channels(Some(channels.clone()));
 			}
 		}
 		server_game.handle_all().await;
+		info!("Game ended");
 	}
 }

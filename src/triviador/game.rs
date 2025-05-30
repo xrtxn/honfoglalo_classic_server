@@ -215,6 +215,7 @@ impl TriviadorGame {
 				shield_mission: None,
 				war_order: None,
 				active_player: None,
+				eliminated_players: vec![],
 			},
 			players: Some(player_info),
 			cmd: None,

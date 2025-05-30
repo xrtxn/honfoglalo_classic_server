@@ -124,6 +124,15 @@ pub async fn game(
 						comm.mn,
 					))?)
 				}
+				CommandType::CloseGame => {
+					//send back to the menu
+					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
+					player_channel.send_message(msg).await.unwrap();
+					Ok(modified_xml_response(&CommandResponse::ok(
+						comm.client_id,
+						comm.mn,
+					))?)
+				}
 				CommandType::AddFriendlyRoom(room) => {
 					trace!("add friendly room");
 					// todo handle other cases

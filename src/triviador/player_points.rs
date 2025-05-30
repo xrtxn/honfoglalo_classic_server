@@ -16,19 +16,15 @@ impl PlayerPoints {
 		Self(points)
 	}
 
-	pub(crate) fn set_player_points(&mut self, rel_id: &PlayerName, points: i16) {
-		let old_points = self.0.get_mut(rel_id).unwrap();
+	pub(crate) fn set_player_points(&mut self, name: &PlayerName, points: i16) {
+		let old_points = self.0.get_mut(name).unwrap();
 		*old_points = points;
 	}
 
-	pub(crate) fn change_player_points(&mut self, rel_id: &PlayerName, by: i16) {
-		let old_points = self.0.get_mut(rel_id).unwrap();
+	pub(crate) fn change_player_points(&mut self, name: &PlayerName, by: i16) {
+		let old_points = self.0.get_mut(name).unwrap();
 		*old_points += by;
 	}
-
-	pub(crate) fn get_player_points(&self, rel_id: &PlayerName) -> i16 {
-        *self.0.get(rel_id).unwrap()
-    }
 }
 
 impl Serialize for PlayerPoints {

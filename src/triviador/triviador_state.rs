@@ -55,6 +55,8 @@ pub(crate) struct TriviadorState {
 	// todo remove
 	#[serde(skip)]
 	pub active_player: Option<PlayerName>,
+	#[serde(skip)]
+	pub eliminated_players: Vec<PlayerName>,
 }
 
 #[derive(Clone, Debug)]
