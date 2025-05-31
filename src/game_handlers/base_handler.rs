@@ -13,7 +13,6 @@ use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
 use crate::users::ServerCommand;
 
-
 // Announcement,
 // StartSelection,
 // SelectionResponse,
@@ -86,7 +85,8 @@ impl BaseHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player).unwrap()
+			.get_player(&active_player)
+			.unwrap()
 			.is_player()
 		{
 			Cmd::set_player_cmd(
@@ -109,7 +109,8 @@ impl BaseHandler {
 			.read()
 			.await
 			.utils
-			.get_player(&active_player).unwrap()
+			.get_player(&active_player)
+			.unwrap()
 			.is_player()
 		{
 			let areas = self.game.read().await.state.areas_info.clone();

@@ -11,6 +11,7 @@ use crate::app::{
 use crate::cdn::countries::CountriesResponse;
 use crate::channels::command::request::{CommandRoot, CommandType};
 use crate::channels::command::response::CommandResponse;
+use crate::channels::heartbeat::request::response::HeartBeatResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
@@ -29,7 +30,7 @@ use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
-const QUICK_BATTLE_EMU: bool = true;
+const QUICK_BATTLE_EMU: bool = false;
 
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this
@@ -225,8 +226,6 @@ pub async fn game(
 
 			player_state.set_listen_ready(ser.listen.is_ready).await;
 
-			//I don't know why we don't need to wait for player to be ready but it works like this
-
 			if !player_state.get_login().await {
 				player_state.set_login(true).await;
 				player_state.set_listen_ready(false).await;
@@ -251,6 +250,10 @@ pub async fn game(
 				remove_root_tag(msg)
 			))
 		}
+		BodyChannelType::HeartBeat(hb) => Ok(modified_xml_response(&HeartBeatResponse::ok(
+			hb.client_id,
+			hb.mn,
+		))?),
 	}
 }
 

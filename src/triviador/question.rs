@@ -196,7 +196,10 @@ pub struct TipStageResponse {
 }
 
 impl TipStageResponse {
-	pub(crate) fn new_tip_question(state: TriviadorState, tip_question: TipQuestion) -> TipStageResponse {
+	pub(crate) fn new_tip_question(
+		state: TriviadorState,
+		tip_question: TipQuestion,
+	) -> TipStageResponse {
 		TipStageResponse {
 			state,
 			cmd: Some(Cmd::tip_command(15)),
@@ -352,7 +355,10 @@ impl TipQuestion {
 
 impl Emulator for TipQuestion {
 	fn emulate() -> Self {
-		TipQuestion::new("What is the National Pokédex number of Bulbasaur, the first Pokémon listed?".to_string())
+		TipQuestion::new(
+			"What is the National Pokédex number of Bulbasaur, the first Pokémon listed?"
+				.to_string(),
+		)
 	}
 }
 

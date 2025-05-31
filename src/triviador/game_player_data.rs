@@ -32,7 +32,7 @@ impl PlayerName {
 impl From<u8> for PlayerName {
 	fn from(val: u8) -> Self {
 		match val {
-		    0 => PlayerName::Nobody,
+			0 => PlayerName::Nobody,
 			1 => PlayerName::Player1,
 			2 => PlayerName::Player2,
 			3 => PlayerName::Player3,

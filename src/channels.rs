@@ -4,10 +4,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::channels::command::request::CommandRequest;
 use crate::channels::command::response::CommandResponseHeader;
+use crate::channels::heartbeat::request::HeartBeatRequest;
 use crate::channels::listen::request::ListenRequest;
 use crate::channels::listen::response::ListenResponseHeader;
 
 pub mod command;
+pub mod heartbeat;
 pub mod listen;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -25,6 +27,8 @@ pub enum BodyChannelType {
 	Command(CommandRequest),
 	#[serde(rename = "L")]
 	Listen(ListenRequest),
+	#[serde(rename = "H")]
+	HeartBeat(HeartBeatRequest),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -65,7 +69,7 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 								let value = std::str::from_utf8(&attr.value).unwrap();
 								mn = value.parse::<u32>().unwrap();
 							}
-							_ => println!("Other attribute"),
+							_ => println!("Unknown attribute for C"),
 						}
 					}
 					return Ok(BodyChannelType::Command(CommandRequest {
@@ -86,7 +90,7 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 								let value = std::str::from_utf8(&attr.value).unwrap();
 								mn = value.parse::<u32>().unwrap();
 							}
-							_ => println!("Other attribute"),
+							_ => println!("Unknown attribute for L"),
 						}
 					}
 					return Ok(BodyChannelType::Listen(ListenRequest {
@@ -95,10 +99,30 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 						retry_num: None,
 					}));
 				}
-				_ => println!("Other character"),
+				b"H" => {
+					for attr in e.attributes() {
+						let attr = attr.unwrap();
+						match attr.key.as_ref() {
+							b"CID" => {
+								let value = std::str::from_utf8(&attr.value).unwrap();
+								cid = value.parse::<i32>().unwrap();
+							}
+							b"MN" => {
+								let value = std::str::from_utf8(&attr.value).unwrap();
+								mn = value.parse::<u32>().unwrap();
+							}
+							_ => println!("Unknown attribute for H"),
+						}
+					}
+					return Ok(BodyChannelType::HeartBeat(HeartBeatRequest {
+						client_id: cid,
+						mn,
+					}));
+				}
+				_ => println!("Unknown character"),
 			},
 
-			_ => println!("Other event"),
+			_ => println!("Unknown event"),
 		}
 		buf.clear();
 	}

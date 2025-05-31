@@ -143,9 +143,9 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 
 		let body = String::from_utf8_lossy(&bytes).to_string();
 		let mut lines: Vec<&str> = body.lines().collect();
-		println!("lines: {:?}", lines);
 		let xml_header_string = lines.remove(0);
-		let new_body = lines.first().unwrap().to_string();
+		// necessary else for heartbeat requests
+		let new_body = lines.first().unwrap_or_else(|| &"").to_string();
 		let mut req = Request::from_parts(parts, Body::from(new_body));
 
 		let parsed_header = parse_xml_multiple(xml_header_string).unwrap();
