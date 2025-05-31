@@ -1,6 +1,5 @@
 use serde::Serialize;
 use tokio_stream::StreamExt;
-use tracing::info;
 
 use crate::{
 	emulator::Emulator,
@@ -60,22 +59,33 @@ pub struct Gameover {
 	pub placings: String,
 	#[serde(rename = "@ROOMID")]
 	pub roomid: String,
+	/// old xp count,total xp change,current xp level,level change 1/0 (true/false)
 	#[serde(rename = "@XP")]
 	pub xp: String,
+	/// placement, base xp points
 	#[serde(rename = "@XPPL")]
 	pub xppl: String,
+	/// point percent, bonus xp
 	#[serde(rename = "@XPPP")]
 	pub xppp: String,
+	/// average opponent level, bonus xp
 	#[serde(rename = "@XPOPP")]
 	pub xpopp: String,
+	/// clan win count, clan win bonus xp
 	#[serde(rename = "@XPCW")]
 	pub xpcw: String,
+	/// clan win count 2, clan win bonus xp 2
 	#[serde(rename = "@XPCW2")]
 	pub xpcw2: String,
+	/// All answers count, won answers count
 	#[serde(rename = "@ANSWERS")]
 	pub answers: String,
 	#[serde(rename = "@TIPS")]
+	/// All tips count, won tips count
 	pub tips: String,
+	/// tip vep count, tip vep total
+	/// tip accuracy
+	// Util.SetText(w.TIPRATIO.VALUE.FIELD,Math.round(100 * _data.tipveptotal / _data.tipvepcount / 100).toFixed(0) + "%");
 	#[serde(rename = "@VEPTIPS")]
 	pub veptips: String,
 	#[serde(rename = "@GOLDS")]
@@ -102,8 +112,6 @@ pub struct Division {
 	pub upcount: String,
 	#[serde(rename = "@DOWNCOUNT")]
 	pub downcount: String,
-	#[serde(rename = "$text")]
-	pub text: Option<String>,
 	#[serde(rename = "MEMBER")]
 	pub member: Vec<Member>,
 }
@@ -151,7 +159,6 @@ impl Emulator for Division {
 			closetime: "1418860800".to_string(),
 			upcount: "10".to_string(),
 			downcount: "0".to_string(),
-			text: None,
 			member: vec![
 				Member {
 					userid: "-1".to_string(),
