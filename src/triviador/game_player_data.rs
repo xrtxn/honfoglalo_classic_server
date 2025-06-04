@@ -91,6 +91,10 @@ impl GamePlayerData {
 			act_league: 1,
 		}
 	}
+
+	pub(crate) fn is_bot(&self) -> bool {
+        self.id == -1
+    }
 }
 
 // Emulates a Player

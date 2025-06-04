@@ -35,17 +35,17 @@ impl ServerGameHandler {
 		let game = SharedTrivGame::new(TriviadorGame::new_game(players.clone()));
 		// todo check
 		let mut server_game_players = GamePlayerInfo::new();
-		if players.pd1.id == -1 {
+		if players.pd1.is_bot() {
 			server_game_players.add(PlayerName::Player1, SGamePlayerInfo::new(false));
 		} else {
 			server_game_players.add(PlayerName::Player1, SGamePlayerInfo::new(true));
 		}
-		if players.pd2.id == -1 {
+		if players.pd2.is_bot() {
 			server_game_players.add(PlayerName::Player2, SGamePlayerInfo::new(false));
 		} else {
 			server_game_players.add(PlayerName::Player2, SGamePlayerInfo::new(true));
 		}
-		if players.pd3.id == -1 {
+		if players.pd3.is_bot() {
 			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(false));
 		} else {
 			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(true));

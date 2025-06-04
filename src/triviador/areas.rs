@@ -100,10 +100,10 @@ impl Area {
 				error!("Trying to upgrade an unoccupied area!");
 				AreaValue::_200
 			}
-			AreaValue::_1000 => AreaValue::_1000,
 			AreaValue::_200 => AreaValue::_300,
 			AreaValue::_300 => AreaValue::_400,
 			AreaValue::_400 => AreaValue::_400,
+			AreaValue::_1000 => AreaValue::_1000,
 		}
 	}
 
@@ -290,7 +290,7 @@ impl Serialize for Areas {
 #[cfg(test)]
 mod tests {
 	use pretty_assertions::assert_eq;
-	use serde_test::{assert_ser_tokens, Token};
+	use serde_test::{Token, assert_ser_tokens};
 
 	use super::*;
 
@@ -310,7 +310,6 @@ mod tests {
 
 	#[test]
 	fn full_area_deserialize() {
-		// todo this may be an invalid string
 		let res = Areas::from_str("13434343434342424242434141421112414243").unwrap();
 
 		assert_eq!(

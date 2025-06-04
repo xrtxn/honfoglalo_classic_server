@@ -1,5 +1,5 @@
-use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
+use rand::prelude::{IteratorRandom, StdRng};
 use tracing::{trace, warn};
 
 use super::question_handler::{TipHandler, TipHandlerType};
@@ -75,8 +75,7 @@ impl BattleHandler {
 			}
 		}
 
-		self.game.send_to_all_active().await;
-		self.game.wait_for_all_active().await;
+		self.send_updated_state().await;
 	}
 
 	pub(super) async fn setup(&self) {
@@ -268,6 +267,7 @@ impl BattleHandler {
 	}
 
 	pub(super) async fn send_updated_state(&self) {
+		self.game.send_to_all_active().await;
 		self.game.wait_for_all_active().await;
 	}
 
@@ -286,6 +286,7 @@ impl BattleHandler {
 		if self.answer_result.is_player_correct(&self.attacker)
 			&& self.answer_result.is_player_correct(&self.defender)
 		{
+			// only show tip question if both players answered correctly
 			winner = Some(self.optional_tip_question().await);
 		} else {
 			winner = if self.answer_result.is_player_correct(&self.attacker) {

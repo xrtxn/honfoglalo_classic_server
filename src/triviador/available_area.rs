@@ -103,7 +103,6 @@ impl AvailableAreas {
 
 		// if there are no filtered available areas, but there are still free areas return all
 		// unoccupied areas
-		// todo check if there are still free areas
 		if player_areas.counties().is_empty() {
 			player_areas = AvailableAreas::all_counties();
 			player_areas.filter_occupied_areas(areas);

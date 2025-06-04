@@ -6,6 +6,16 @@ use serde_with::skip_serializing_none;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ExitCurrentRoom {}
 
+enum OpponentType {
+	Player(i8),
+	// 1
+	Robot,
+	// 0
+	Anyone,
+	// -2
+	Code,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddFriendlyRoom {
 	#[serde(rename = "@OPP1", deserialize_with = "deserialize_number_from_string")]

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
+use rand::prelude::{IteratorRandom, StdRng};
 use tokio_stream::{Stream, StreamExt};
 use tracing::{info, trace, warn};
 
@@ -156,7 +156,7 @@ impl SGame {
 		} else {
 			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
 			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
-			let wo = WarOrder::from(vec![1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3]);
+			let wo = WarOrder::from(vec![3,2,2, 3, 2, 3, 1, 2, 3, 1, 2, 3]);
 			self.game.write().await.state.war_order = Some(wo.clone());
 
 			// setup battle handler
@@ -199,13 +199,10 @@ impl SGame {
 						game_write.state.active_player = Some(player);
 						drop(game_write);
 						battle_handler.handle_attacking().await;
-						break 'war_loop;
 					} else {
 						self.game.write().await.state.round_info.mini_phase_num += 1;
 					}
 				}
-
-				battle_handler.send_updated_state().await;
 
 				self.game.write().await.state.game_state.round += 1;
 				self.game.write().await.state.round_info.mini_phase_num = 0;
@@ -374,5 +371,11 @@ impl SGamePlayerInfo {
 
 	pub(crate) fn get_player_channels(&self) -> &Option<GamePlayerChannels> {
 		&self.channels
+	}
+
+	pub(crate) fn clear_player_command_channel(&self) {
+		self.channels.as_ref().map(|channels| {
+			channels.command_channel.get_command_channel().clear();
+		});
 	}
 }

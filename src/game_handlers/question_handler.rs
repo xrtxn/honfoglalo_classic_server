@@ -4,7 +4,7 @@ use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 
 use super::s_game::GamePlayerInfo;
 use crate::emulator::Emulator;
@@ -82,44 +82,64 @@ impl QuestionHandler {
 		let q = Question::emulate();
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
-		let mut iter = utils.active_players_stream();
-		while let Some(player) = iter.next().await {
-			self.game
-				.send_xml_channel(
-					&player,
-					quick_xml::se::to_string(&QuestionStageResponse::new_question(
-						state.clone(),
-						q.clone(),
-					))
-					.unwrap(),
-				)
-				.await
-				.unwrap();
-		}
-		self.game.wait_for_all_active().await;
+		let iter = utils.active_players_stream();
+		futures::stream::StreamExt::for_each_concurrent(iter, None, |player| {
+			let game = self.game.arc_clone();
+			let state = state.clone();
+			let q = q.clone();
+			let mut qsr = QuestionStageResponse::new_question(state, q);
+			if self.question_players.get_player(&player).is_none() {
+				qsr.cmd = None; // do not send cmd to non question players
+			}
+			async move {
+				if let Err(e) = game
+					.send_xml_channel(&player, quick_xml::se::to_string(&qsr).unwrap())
+					.await
+				{
+					warn!("Failed to send question to player {}: {}", player, e);
+				}
+			}
+		})
+		.await;
 	}
 
 	async fn get_question_response(&mut self) {
-		let mut iter = self.question_players.players_with_info_stream();
-		while let Some((player, info)) = iter.next().await {
-			if info.is_player() {
-				match self.game.recv_command_channel(player).await.unwrap() {
-					ServerCommand::QuestionAnswer(ans) => {
-						trace!("got_question_response: {:?}", player);
-						self.answer_result.set_player_answer(player, ans);
+		let answer_result = Arc::new(Mutex::new(self.answer_result.clone()));
+		let iter = self.question_players.players_with_info_stream();
+		futures::stream::StreamExt::for_each_concurrent(iter, None, |(player, info)| {
+			let game = self.game.arc_clone();
+			let player = *player;
+			let answer_result = Arc::clone(&answer_result);
+			async move {
+				if info.is_player() {
+					match game
+						.loop_recv_command(&player, ServerCommand::QuestionAnswer(0))
+						.await
+						.unwrap()
+					{
+						ServerCommand::QuestionAnswer(ans) => {
+							trace!("got_question_response: {:?}", player);
+							answer_result.lock().await.set_player_answer(&player, ans);
+						}
+						_ => {
+							error!("Unable to loop wait for player");
+						}
 					}
-					_ => {
-						trace!("get_question_response: {:?}", player);
-						warn!("Invalid command");
-					}
+				} else {
+					// todo not necessary to sleep, we can just modify the answer result directly
+					tokio::time::sleep(std::time::Duration::from_millis(1234)).await; // Simulate delay for bots
+					let mut rng = StdRng::from_entropy();
+					let random_answer: u8 = rng.gen_range(1..=1);
+					// let random_answer: u8 = rng.gen_range(1..=4);
+					answer_result
+						.lock()
+						.await
+						.set_player_answer(&player, random_answer);
 				}
-			} else {
-				let mut rng = StdRng::from_entropy();
-				let random_answer: u8 = rng.gen_range(1..=1);
-				// let random_answer: u8 = rng.gen_range(1..=4);
-				self.answer_result.set_player_answer(player, random_answer);
 			}
-		}
+		})
+		.await;
+		self.answer_result = answer_result.lock().await.clone();
 	}
 
 	async fn send_correct_answer(&self) {
@@ -138,7 +158,7 @@ impl QuestionHandler {
 				self.game.write().await.state.game_state.phase += 1;
 			}
 		}
-		// todo find a better way than cloning this possible arc
+		// todo find a better way than cloning this, possible arc
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
 		let mut iter = utils.active_players_stream();
@@ -251,19 +271,23 @@ impl TipHandler {
 		let tq = TipQuestion::emulate();
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
-		let mut iter = utils.active_players_stream();
-		while let Some(player) = iter.next().await {
+		let iter = utils.active_players_stream();
+		futures::stream::StreamExt::for_each_concurrent(iter, None, |player| {
+			let game = self.game.arc_clone();
 			let mut tip_stage = TipStageResponse::new_tip_question(state.clone(), tq.clone());
 			if self.tip_players.get_player(&player).is_none() {
 				tip_stage.cmd = None;
 			}
-
-			self.game
-				.send_xml_channel(player, quick_xml::se::to_string(&tip_stage).unwrap())
-				.await
-				.unwrap();
-		}
-		self.game.wait_for_all_active().await;
+			async move {
+				if let Err(e) = game
+					.send_xml_channel(&player, quick_xml::se::to_string(&tip_stage).unwrap())
+					.await
+				{
+					warn!("Failed to send tip request to player {}: {}", player, e);
+				}
+			}
+		})
+		.await;
 	}
 
 	// todo fix elapsed time
@@ -271,18 +295,18 @@ impl TipHandler {
 		let start = std::time::Instant::now();
 		let tip_info = Arc::new(Mutex::new(self.tip_info.clone()));
 
-		let mut join_handles = Vec::new();
-
-		let mut iter = self.tip_players.players_stream();
-		while let Some(player) = iter.next().await {
+		let iter = self.tip_players.players_with_info_stream();
+		futures::stream::StreamExt::for_each_concurrent(iter, None, |(player, info)| {
 			let game = self.game.arc_clone();
-			let is_player = self.tip_players.get_player(&player).unwrap().is_player();
 			let tip_info = Arc::clone(&tip_info);
 			let player = *player;
 
-			let handle = tokio::spawn(async move {
-				if is_player {
-					match game.recv_command_channel(&player).await {
+			async move {
+				if info.is_player() {
+					match game
+						.loop_recv_command(&player, ServerCommand::TipAnswer(0))
+						.await
+					{
 						Ok(ServerCommand::TipAnswer(ans)) => {
 							tip_info.lock().await.add_player_tip(
 								player,
@@ -291,7 +315,7 @@ impl TipHandler {
 							);
 						}
 						_ => {
-							todo!();
+							error!("Unable to loop wait for player");
 						}
 					}
 				} else {
@@ -304,11 +328,9 @@ impl TipHandler {
 						start.elapsed().as_secs_f32(),
 					);
 				}
-			});
-			join_handles.push(handle);
-		}
-
-		futures::future::join_all(join_handles).await;
+			}
+		})
+		.await;
 
 		// Update self.tip_info after collecting all results
 		self.tip_info = tip_info.lock().await.clone();
@@ -335,7 +357,11 @@ impl TipHandler {
 				.await
 				.unwrap();
 		}
-		self.game.wait_for_all_active().await;
+		// Wait at least 1 second for players to receive the answer
+		tokio::join!(
+			self.game.wait_for_all_active(),
+			tokio::time::sleep(std::time::Duration::from_millis(1000))
+		);
 		let winner = tip_stage_response.tip_result.unwrap();
 		winner.winner
 	}

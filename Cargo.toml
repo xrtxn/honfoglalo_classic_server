@@ -1,7 +1,7 @@
 [package]
 name = "honfoglalo_classic_server"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 resolver = "2"
 
 [dependencies]
@@ -26,7 +26,7 @@ sqlx = { version = "0.8", features = ["postgres", "runtime-tokio"] }
 dotenvy = "0.15"
 hex = "0.4.3"
 futures = "0.3"
-#todo check performance
+#todo replace with fastrand
 rand = "0.8"
 scc = { version = "2.2.5", features = ["serde"] }
 http-body-util = "0.1.2"

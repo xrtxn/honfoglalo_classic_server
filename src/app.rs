@@ -6,11 +6,12 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::{middleware, Extension, Router};
+use axum::{Extension, Router, middleware};
 use http_body_util::BodyExt;
 use scc::HashMap;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
+use tracing::trace;
 
 use crate::channels::parse_xml_multiple;
 use crate::router::{client_castle, countries, friends, game, help, mobil};
@@ -65,16 +66,29 @@ impl<T: Clone> PlayerChannel<T> {
 		PlayerChannel { tx, rx }
 	}
 
-	pub async fn send_message(&self, msg: T) -> Result<(), flume::SendError<T>> {
+	pub(crate) async fn send_message(&self, msg: T) -> Result<(), flume::SendError<T>> {
 		self.tx.send_async(msg).await
 	}
 
-	pub async fn recv_message(&self) -> Result<T, flume::RecvError> {
+	pub(crate) async fn recv_message(&self) -> Result<T, flume::RecvError> {
 		self.rx.recv_async().await
+	}
+
+	pub(crate) fn clear(&self) {
+		let num = self.rx.len();
+		while let Ok(_) = self.rx.try_recv() {
+			trace!("Clearing message from channel: {}", num);
+		}
 	}
 }
 
 pub type ServerCommandChannel = PlayerChannel<ServerCommand>;
+impl ServerCommandChannel {
+	pub fn get_command_channel(&self) -> &PlayerChannel<ServerCommand> {
+		self
+	}
+}
+
 pub type XmlPlayerChannel = PlayerChannel<String>;
 
 pub struct App {
