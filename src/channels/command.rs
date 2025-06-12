@@ -8,7 +8,7 @@ pub mod request {
 	use crate::menu::friend_list::external_data::ExtDataRequest;
 	use crate::triviador::question::{PlayerTipResponse, SelfAnswer};
 	use crate::village::start::friendly_game::{
-		AddFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
+		AddFriendlyRoom, EnterFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
 	};
 	use crate::village::start_game::request::EnterLobbyRequest;
 	use crate::village::waithall::ChangeWHXML;
@@ -47,6 +47,8 @@ pub mod request {
 		CloseGame,
 		#[serde(rename = "ADDSEPROOM")]
 		AddFriendlyRoom(AddFriendlyRoom),
+		#[serde(rename = "ENTERSEPROOM")]
+		JoinFriendlyRoom(EnterFriendlyRoom),
 		#[serde(rename = "STARTSEPROOM")]
 		StartTriviador(StartFriendlyRoom),
 		#[serde(rename = "READY")]

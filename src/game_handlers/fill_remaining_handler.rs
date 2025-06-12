@@ -1,5 +1,5 @@
-use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
+use rand::prelude::{IteratorRandom, StdRng};
 use tracing::{trace, warn};
 
 use crate::game_handlers::question_handler::{TipHandler, TipHandlerType};
@@ -57,8 +57,9 @@ impl FillRemainingHandler {
 		self.game
 			.write()
 			.await
-			.add_fill_round_winner(self.winner)
-			.await;
+			.state
+			.fill_round_winners
+			.add_player(self.winner);
 	}
 
 	pub(super) async fn ask_desired_area(&self) {

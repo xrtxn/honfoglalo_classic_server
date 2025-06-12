@@ -2,6 +2,7 @@ use serde::Serialize;
 use serde_with::skip_serializing_none;
 
 use super::areas::Areas;
+use super::fill_round::FillRound;
 use super::game_player_data::PlayerName;
 use super::player_points::PlayerPoints;
 use super::war_order::WarOrder;
@@ -43,7 +44,7 @@ pub(crate) struct TriviadorState {
 	#[serde(rename = "@UH")]
 	pub used_helps: String,
 	#[serde(rename = "@FAO")]
-	pub fill_round_winners: String,
+	pub fill_round_winners: FillRound,
 	// possibly unused
 	#[serde(rename = "@RT")]
 	pub room_type: Option<String>,

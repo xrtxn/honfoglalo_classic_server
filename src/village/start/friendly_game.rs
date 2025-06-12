@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_aux::prelude::deserialize_number_from_string;
@@ -6,22 +8,36 @@ use serde_with::skip_serializing_none;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ExitCurrentRoom {}
 
-enum OpponentType {
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub(crate) enum OpponentType {
 	Player(i8),
-	// 1
-	Robot,
 	// 0
 	Anyone,
+	// -1
+	Robot,
 	// -2
 	Code,
+}
+
+impl FromStr for OpponentType {
+	type Err = std::num::ParseIntError;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		match s {
+			"0" => Ok(OpponentType::Anyone),
+			"-1" => Ok(OpponentType::Robot),
+			"-2" => Ok(OpponentType::Code),
+			_ => Ok(OpponentType::Player(i8::from_str(s)?)),
+		}
+	}
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct AddFriendlyRoom {
 	#[serde(rename = "@OPP1", deserialize_with = "deserialize_number_from_string")]
-	pub opp1: i8,
+	pub opp1: OpponentType,
 	#[serde(rename = "@OPP2", deserialize_with = "deserialize_number_from_string")]
-	pub opp2: i8,
+	pub opp2: OpponentType,
 	#[serde(rename = "@NAME1")]
 	pub name1: String,
 	#[serde(rename = "@NAME2")]
@@ -32,6 +48,13 @@ pub struct AddFriendlyRoom {
 	pub question_categories: String,
 	#[serde(rename = "@CHATMSG")]
 	pub chatmsg: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EnterFriendlyRoom {
+	// max 9999
+	#[serde(rename = "@CODE", deserialize_with = "deserialize_number_from_string")]
+	pub code: u16,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

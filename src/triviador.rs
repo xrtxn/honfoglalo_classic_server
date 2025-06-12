@@ -3,6 +3,7 @@ pub(crate) mod available_area;
 pub(crate) mod bases;
 pub(crate) mod cmd;
 pub(crate) mod county;
+pub(crate) mod fill_round;
 pub(crate) mod game;
 pub(crate) mod game_player_data;
 pub(crate) mod game_state;

@@ -6,6 +6,17 @@ pub(crate) struct GameState {
 	pub round: u8,
 	pub phase: u8,
 }
+
+impl GameState {
+	pub(crate)  fn loading_screen() -> GameState {
+		GameState {
+			state: 11,
+			round: 0,
+			phase: 0,
+		}
+	}
+}
+
 impl Serialize for GameState {
 	fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
 	where

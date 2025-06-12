@@ -1,7 +1,7 @@
 use axum::{Extension, Json};
-use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand::rngs::StdRng;
 use sqlx::PgPool;
 use tracing::{trace, warn};
 
@@ -9,13 +9,13 @@ use crate::app::{
 	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
 };
 use crate::cdn::countries::CountriesResponse;
+use crate::channels::BodyChannelType;
 use crate::channels::command::request::{CommandRoot, CommandType};
 use crate::channels::command::response::CommandResponse;
 use crate::channels::heartbeat::request::response::HeartBeatResponse;
 use crate::channels::listen::request::ListenRoot;
 use crate::channels::listen::response::ListenResponseType::VillageSetup;
 use crate::channels::listen::response::{ListenResponse, ListenResponseHeader};
-use crate::channels::BodyChannelType;
 use crate::emulator::Emulator;
 use crate::game_handlers::server_game_handler::ServerGameHandler;
 use crate::menu::friend_list::external_data::ExternalFriendsRoot;
@@ -28,6 +28,7 @@ use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
 use crate::village::setup::VillageSetupRoot;
 use crate::village::start::friendly_game::ActiveSepRoom;
+use crate::village::start::friendly_game::OpponentType;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
 const QUICK_BATTLE_EMU: bool = false;
@@ -67,6 +68,7 @@ pub async fn game(
 	server_command_channel: Extension<ServerCommandChannel>,
 	body: String,
 ) -> Result<String, AppError> {
+	//todo fetch this from db
 	const GAME_ID: u32 = 1;
 	const PLAYER_ID: i32 = 1;
 	const PLAYER_NAME: &str = "xrtxn";
@@ -137,7 +139,7 @@ pub async fn game(
 				CommandType::AddFriendlyRoom(room) => {
 					trace!("add friendly room");
 					// todo handle other cases
-					if room.opp1 == -1 && room.opp2 == -1 {
+					if room.opp1 == OpponentType::Robot && room.opp2 == OpponentType::Robot {
 						// todo get next number
 						let mut rng = StdRng::from_entropy();
 						let room_number = rng.gen_range(1..=100000);
@@ -165,6 +167,9 @@ pub async fn game(
 						comm.mn,
 					))?)
 				}
+				CommandType::JoinFriendlyRoom(room) => Ok(modified_xml_response(
+					&CommandResponse::ok(comm.client_id, comm.mn),
+				)?),
 				CommandType::StartTriviador(_) => {
 					tokio::spawn(async move {
 						ServerGameHandler::new_friendly(

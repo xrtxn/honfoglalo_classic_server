@@ -10,6 +10,7 @@ use tracing::trace;
 
 use super::areas::Areas;
 use super::available_area::AvailableAreas;
+use super::fill_round::FillRound;
 use super::game_player_data::PlayerName;
 use super::player_points::PlayerPoints;
 use crate::game_handlers::s_game::{GamePlayerInfo, SGamePlayerInfo};
@@ -195,11 +196,7 @@ impl TriviadorGame {
 		TriviadorGame {
 			state: TriviadorState {
 				map_name: "MAP_WD".to_string(),
-				game_state: GameState {
-					state: 11,
-					round: 0,
-					phase: 0,
-				},
+				game_state: GameState::loading_screen(),
 				round_info: RoundInfo {
 					mini_phase_num: 0,
 					active_player: PlayerName::Nobody,
@@ -213,7 +210,7 @@ impl TriviadorGame {
 				areas_info: Areas::new(),
 				available_areas: AvailableAreas::new(),
 				used_helps: "0".to_string(),
-				fill_round_winners: "".to_string(),
+				fill_round_winners: FillRound::new(),
 				room_type: None,
 				shield_mission: None,
 				war_order: None,
@@ -224,11 +221,5 @@ impl TriviadorGame {
 			cmd: None,
 			utils: GamePlayerInfo::new(),
 		}
-	}
-
-	pub(crate) async fn add_fill_round_winner(&mut self, winner: Option<PlayerName>) {
-		self.state
-			.fill_round_winners
-			.push_str(winner.unwrap().to_string().as_str());
 	}
 }
