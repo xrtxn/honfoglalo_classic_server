@@ -1,9 +1,5 @@
 use axum::{Extension, Json};
-use rand::Rng;
-use rand::SeedableRng;
-use rand::rngs::StdRng;
 use sqlx::PgPool;
-use tracing::{trace, warn};
 
 use crate::app::{
 	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
@@ -64,13 +60,13 @@ pub async fn game(
 	xml_header: Extension<BodyChannelType>,
 	player_state: Extension<SharedPlayerState>,
 	friendly_rooms: Extension<FriendlyRooms>,
-	player_channel: Extension<XmlPlayerChannel>,
+	player_listen_channel: Extension<XmlPlayerChannel>,
 	server_command_channel: Extension<ServerCommandChannel>,
 	body: String,
 ) -> Result<String, AppError> {
 	//todo fetch this from db
 	const GAME_ID: u32 = 1;
-	const PLAYER_ID: i32 = 1;
+	const PLAYER_ID: OpponentType = OpponentType::Player(1);
 	const PLAYER_NAME: &str = "xrtxn";
 
 	let body = format!("<ROOT>{}</ROOT>", body);
@@ -80,30 +76,38 @@ pub async fn game(
 			match ser.msg_type {
 				CommandType::Login(_) => {
 					// todo validate login
-					player_state.set_login(false).await;
+					player_state.set_login(true).await;
 					player_state.set_listen_ready(false).await;
 					if QUICK_BATTLE_EMU {
 						tokio::spawn(async move {
 							ServerGameHandler::new_friendly(
-								player_channel.0,
+								player_listen_channel.0,
 								server_command_channel.0,
 								GAME_ID,
 							)
 							.await;
 						});
+					} else {
+						player_listen_channel
+							.send_message(quick_xml::se::to_string(&VillageSetupRoot::emulate())?)
+							.await
+							.unwrap();
 					}
 					Ok(modified_xml_response(&CommandResponse::ok(
-						PLAYER_ID, comm.mn,
+						PLAYER_ID.get_id(),
+						comm.mn,
 					))?)
 				}
 				CommandType::ChangeWaitHall(chw) => {
+					player_state.set_current_waithall(chw.waithall).await;
+
 					let msg = match chw.waithall {
 						Waithall::Game => quick_xml::se::to_string(&GameMenuWaithall::emulate())?,
 						Waithall::Village => {
 							quick_xml::se::to_string(&VillageSetupRoot::emulate())?
 						}
 					};
-					player_channel.send_message(msg).await.unwrap();
+					player_listen_channel.send_message(msg).await.unwrap();
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -113,6 +117,8 @@ pub async fn game(
 					Ok(modified_xml_response(&CommandResponse::error())?)
 				}
 				CommandType::GetExternalData(_) => {
+					if player_state.get_current_waithall().await == Waithall::Game {}
+
 					let msg = quick_xml::se::to_string(&ExternalFriendsRoot::emulate())?;
 					Ok(remove_root_tag(format!(
 						"{}\n{}",
@@ -121,7 +127,19 @@ pub async fn game(
 					)))
 				}
 				CommandType::ExitCurrentRoom(_) => {
-					warn!("Encountered stub ExitCurrentRoom, this response may work or may not");
+					// match player_state.get_current_waithall().await {
+					// 	Waithall::Game => {
+					// 		player_channel
+					// 			.send_message(quick_xml::se::to_string(
+					// 				&GameMenuWaithall::emulate(),
+					// 			)?)
+					// 			.await
+					// 			.unwrap();
+					// 	}
+					// 	Waithall::Village => error!(
+					// 		"ExitCurrentRoom called while in Village, this should not happen"
+					// 	),
+					// }
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -130,35 +148,59 @@ pub async fn game(
 				CommandType::CloseGame => {
 					//send back to the menu
 					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
-					player_channel.send_message(msg).await.unwrap();
+					player_listen_channel.send_message(msg).await.unwrap();
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
 					))?)
 				}
-				CommandType::AddFriendlyRoom(room) => {
-					trace!("add friendly room");
-					// todo handle other cases
-					if room.opp1 == OpponentType::Robot && room.opp2 == OpponentType::Robot {
-						// todo get next number
-						let mut rng = StdRng::from_entropy();
-						let room_number = rng.gen_range(1..=100000);
-						friendly_rooms
-							.insert(
-								room_number,
-								ActiveSepRoom::new_bot_room(PLAYER_ID, PLAYER_NAME),
-							)
-							.unwrap();
-						trace!("friendly_rooms.0:{:?}", friendly_rooms.0);
+				// This gets called after clicking on the button add players to the friendly room
+				CommandType::AddFriendlyRoom(request_room) => {
+					use OpponentType::*;
 
+					let room_number = friendly_rooms.len() as u16;
+
+					friendly_rooms
+						.insert(room_number, ActiveSepRoom::new(PLAYER_ID, PLAYER_NAME))
+						.unwrap();
+
+					let mut room = friendly_rooms.get(&room_number).unwrap();
+
+					room.add_opponent(request_room.opp1);
+					room.add_opponent(request_room.opp2);
+
+					//todo move this
+					if matches!(request_room.opp1, Robot)
+						|| matches!(request_room.opp1, Player(_))
+							&& matches!(request_room.opp2, Robot)
+						|| matches!(request_room.opp1, Player(_))
+					{
+						room.allow_game();
+					}
+
+					drop(room);
+
+					let xml = quick_xml::se::to_string(
+						&friendly_rooms
+							.0
+							.read(&room_number, |_, v| v.clone())
+							.unwrap(),
+					)?;
+					player_listen_channel.send_message(xml).await.unwrap();
+					Ok(modified_xml_response(&CommandResponse::ok(
+						comm.client_id,
+						comm.mn,
+					))?)
+				}
+				CommandType::JoinFriendlyRoom(room) => {
+					if room.code.is_some() {
 						let xml = quick_xml::se::to_string(
 							&friendly_rooms
 								.0
-								.read(&room_number, |_, v| v.clone())
+								.read(&room.code.unwrap(), |_, v| v.clone())
 								.unwrap(),
 						)?;
-						player_channel.send_message(xml).await.unwrap();
-						trace!("friendly room added");
+						player_listen_channel.send_message(xml).await.unwrap();
 					} else {
 						return Ok(modified_xml_response(&CommandResponse::error())?);
 					}
@@ -167,13 +209,10 @@ pub async fn game(
 						comm.mn,
 					))?)
 				}
-				CommandType::JoinFriendlyRoom(room) => Ok(modified_xml_response(
-					&CommandResponse::ok(comm.client_id, comm.mn),
-				)?),
 				CommandType::StartTriviador(_) => {
 					tokio::spawn(async move {
 						ServerGameHandler::new_friendly(
-							player_channel.0,
+							player_listen_channel.0,
 							server_command_channel.0,
 							GAME_ID,
 						)
@@ -231,24 +270,11 @@ pub async fn game(
 
 			player_state.set_listen_ready(ser.listen.is_ready).await;
 
-			if !player_state.get_login().await {
-				player_state.set_login(true).await;
-				player_state.set_listen_ready(false).await;
-				return Ok(modified_xml_response(&ListenResponse::new(
-					ListenResponseHeader {
-						client_id: lis.client_id,
-						mn: lis.mn,
-						result: 0,
-					},
-					VillageSetup(VillageSetupRoot::emulate()),
-				))?);
-			}
-
-			let msg = player_channel.recv_message().await.unwrap();
+			let msg = player_listen_channel.recv_message().await.unwrap();
 			Ok(format!(
 				"{}\n{}",
 				quick_xml::se::to_string(&ListenResponseHeader {
-					client_id: PLAYER_ID,
+					client_id: lis.client_id,
 					mn: lis.mn,
 					result: 0,
 				})?,

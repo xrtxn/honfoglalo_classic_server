@@ -375,7 +375,7 @@ impl SGamePlayerInfo {
 
 	pub(crate) fn clear_player_command_channel(&self) {
 		self.channels.as_ref().map(|channels| {
-			channels.command_channel.get_command_channel().clear();
+			channels.command_channel.get_command_channel().clear_rx();
 		});
 	}
 }

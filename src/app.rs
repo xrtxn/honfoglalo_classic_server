@@ -16,15 +16,17 @@ use tracing::trace;
 use crate::channels::parse_xml_multiple;
 use crate::router::{client_castle, countries, friends, game, help, mobil};
 use crate::users::ServerCommand;
-use crate::village::start::friendly_game::ActiveSepRoom;
+use crate::village::start::friendly_game::{ActiveSepRoom, OpponentType};
+use crate::village::waithall::Waithall;
 
-pub type FriendlyRooms = HashMap<i32, ActiveSepRoom>;
+pub type FriendlyRooms = HashMap<u16, ActiveSepRoom>;
 pub type SharedState = HashMap<i32, SharedPlayerState>;
 
 #[derive(Debug)]
 struct PlayerState {
 	pub is_logged_in: RwLock<bool>,
 	pub is_listen_ready: RwLock<bool>,
+	pub current_waithall: RwLock<Waithall>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +37,7 @@ impl SharedPlayerState {
 		let val = PlayerState {
 			is_logged_in: RwLock::new(false),
 			is_listen_ready: RwLock::new(false),
+			current_waithall: RwLock::new(Waithall::Village),
 		};
 		SharedPlayerState(Arc::new(val))
 	}
@@ -52,6 +55,12 @@ impl SharedPlayerState {
 	pub async fn set_listen_ready(&self, val: bool) {
 		*self.0.is_listen_ready.write().await = val;
 	}
+	pub async fn get_current_waithall(&self) -> Waithall {
+        *self.0.current_waithall.read().await
+    }
+    pub async fn set_current_waithall(&self, waithall: Waithall) {
+        *self.0.current_waithall.write().await = waithall;
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -74,7 +83,7 @@ impl<T: Clone> PlayerChannel<T> {
 		self.rx.recv_async().await
 	}
 
-	pub(crate) fn clear(&self) {
+	pub(crate) fn clear_rx(&self) {
 		let num = self.rx.len();
 		while let Ok(_) = self.rx.try_recv() {
 			trace!("Clearing message from channel: {}", num);
@@ -107,12 +116,16 @@ impl App {
 		// todo use a middleware instead
 		const USER_ID: i32 = 1;
 
-		let friendly_rooms: FriendlyRooms = HashMap::new();
+		let friendly_rooms: FriendlyRooms = FriendlyRooms::new();
 		let shared_state: SharedState = HashMap::new();
 		let val = SharedPlayerState::new();
 		let player_channel: XmlPlayerChannel = PlayerChannel::new();
 		let server_command_channel: ServerCommandChannel = ServerCommandChannel::new();
 
+		let mut test_room = ActiveSepRoom::new(OpponentType::Player(2), "Tesztelek");
+		test_room.add_opponent(OpponentType::Anyone);
+		test_room.add_opponent(OpponentType::Robot);
+		friendly_rooms.insert(0000, test_room).unwrap();
 		shared_state.insert(USER_ID, val).unwrap();
 
 		let app = Router::new()
@@ -159,6 +172,7 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 		let mut lines: Vec<&str> = body.lines().collect();
 		let xml_header_string = lines.remove(0);
 		// necessary else for heartbeat requests
+		// todo optimize this
 		let new_body = lines.first().unwrap_or_else(|| &"").to_string();
 		let mut req = Request::from_parts(parts, Body::from(new_body));
 
@@ -183,8 +197,8 @@ impl IntoResponse for AppError {
 	}
 }
 
-// This enables using `?` on functions that return `Result<_, anyhow::Error>` to turn them into
-// `Result<_, AppError>`.
+// This enables using `?` on functions that return `Result<_, anyhow::Error>`
+// to turn them into `Result<_, AppError>`.
 impl<E> From<E> for AppError
 where
 	E: Into<anyhow::Error>,

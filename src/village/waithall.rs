@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;
+use serde_with::{BoolFromInt, serde_as};
 
 use crate::emulator::Emulator;
 
@@ -20,31 +21,39 @@ pub struct State {
 	pub screen: String,
 }
 
+#[serde_as]
 #[skip_serializing_none]
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct GameRoom {
 	#[serde(rename = "@ID")]
-	pub id: String,
+	pub id: u8,
 	#[serde(rename = "@TITLE")]
 	pub title: String,
 	#[serde(rename = "@MAP")]
 	pub map: String,
 	#[serde(rename = "@TYPE")]
-	pub game_room_type: String,
+	pub game_room_type: u8,
 	#[serde(rename = "@PLAYERS")]
-	pub players: String,
+	pub players: u16,
 	#[serde(rename = "@INGAME")]
-	pub ingame: String,
+	pub ingame: u16,
+	/// Seconds remaining
 	#[serde(rename = "@REMAINING")]
 	pub remaining_time: Option<u16>,
-	// todo complete some tags like closed and maxboosters
+	#[serde_as(as = "Option<BoolFromInt>")]
+	#[serde(rename = "@JOINED")]
+	pub joined: Option<bool>,
+	#[serde_as(as = "Option<BoolFromInt>")]
+	#[serde(rename = "@CLOSED")]
+	pub closed: Option<bool>,
+	// todo complete some tags like maxboosters
 	// triviador.swf/triviador.StartWindowMov
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct WaitState {
 	#[serde(rename = "@ROOMSEL")]
-	pub roomsel: String,
+	pub roomsel: u8,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -53,7 +62,7 @@ pub struct ChangeWHXML {
 	pub waithall: Waithall,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Clone, Copy, Debug)]
 pub enum Waithall {
 	#[serde(rename = "GAME")]
 	Game,
@@ -69,63 +78,63 @@ impl Emulator for GameMenuWaithall {
 			},
 			gameroom: vec![
 				GameRoom {
-					id: "1".to_string(),
+					id: 1,
 					title: "JUNIOR".to_string(),
 					map: "HU".to_string(),
-					game_room_type: "2".to_string(),
-					players: "0".to_string(),
-					ingame: "0".to_string(),
-					remaining_time: None,
+					game_room_type: 2,
+					players: 0,
+					ingame: 0,
+					remaining_time: Some(100),
+					joined: None,
+					closed: None,
 				},
 				GameRoom {
-					id: "2".to_string(),
+					id: 2,
 					title: "DEFAULT".to_string(),
 					map: "HU".to_string(),
-					game_room_type: "2".to_string(),
-					players: "0".to_string(),
-					ingame: "0".to_string(),
+					game_room_type: 2,
+					players: 0,
+					ingame: 0,
 					remaining_time: None,
+					joined: None,
+					closed: None,
 				},
 				GameRoom {
-					id: "3".to_string(),
+					id: 3,
 					title: "LONG".to_string(),
 					map: "HU".to_string(),
-					game_room_type: "2".to_string(),
-					players: "0".to_string(),
-					ingame: "0".to_string(),
+					game_room_type: 2,
+					players: 0,
+					ingame: 0,
 					remaining_time: None,
+					joined: None,
+					closed: None,
 				},
-				// todo
-				// Gameroom {
-				//     id: "4".to_string(),
-				//     title: "MINI".to_string(),
-				//     map: "HU".to_string(),
-				//     gameroom_type: "10".to_string(),
-				//     players: "0".to_string(),
-				//     ingame: "0".to_string(),
-				//     remaining_time: Some(6000),
-				// },
-				// Gameroom {
-				//     id: "5".to_string(),
-				//     title: "FRIENDLY".to_string(),
-				//     map: "HU".to_string(),
-				//     gameroom_type: "11".to_string(),
-				//     players: "0".to_string(),
-				//     ingame: "0".to_string(),
-				//     remaining_time: None,
-				// },
 				GameRoom {
-					id: "6".to_string(),
+					id: 4,
+					title: "MINI".to_string(),
+					map: "HU".to_string(),
+					game_room_type: 10,
+					players: 0,
+					ingame: 0,
+					remaining_time: Some(400),
+					joined: None,
+					closed: Some(true),
+				},
+				GameRoom {
+					id: 5,
 					title: "Bajnokság".to_string(),
 					map: "HU".to_string(),
-					game_room_type: "12".to_string(),
-					players: "0".to_string(),
-					ingame: "0".to_string(),
-					remaining_time: Some(6000),
+					game_room_type: 12,
+					players: 0,
+					ingame: 0,
+					remaining_time: Some(500),
+					joined: Some(false),
+					closed: Some(true),
 				},
 			],
 			waitstate: WaitState {
-				roomsel: "0".to_string(),
+				roomsel: 0,
 			},
 		}
 	}

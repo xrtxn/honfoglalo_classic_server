@@ -1,5 +1,5 @@
 ## Game.rules
-### 0
+### 1
 Long game
-### Else
-todo
+### 2
+Normal game

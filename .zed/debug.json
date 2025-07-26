@@ -1,0 +1,12 @@
+[
+  {
+    "label": "Build & Debug native binary",
+    "adapter": "CodeLLDB",
+    "build": {
+      "command": "cargo",
+      "args": ["build"]
+    },
+    // sourceLanguages is required for CodeLLDB (not GDB) when using Rust
+    "sourceLanguages": ["rust"]
+  }
+]

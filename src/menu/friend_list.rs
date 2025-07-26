@@ -45,6 +45,7 @@ pub mod friends {
 
 pub mod external_data {
 	use serde::{Deserialize, Serialize};
+	use serde_with::skip_serializing_none;
 
 	use crate::emulator::Emulator;
 
@@ -54,11 +55,12 @@ pub mod external_data {
 		pub requested_ids: String,
 	}
 
+	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
 	#[serde(rename = "ROOT")]
 	pub struct ExternalFriendsRoot {
 		#[serde(rename = "EXTDATA")]
-		pub extdata: Extdata,
+		pub extdata: Option<Extdata>,
 	}
 
 	#[derive(Serialize, Deserialize, Debug)]
@@ -86,7 +88,7 @@ pub mod external_data {
 	impl Emulator for ExternalFriendsRoot {
 		fn emulate() -> Self {
 			ExternalFriendsRoot {
-				extdata: Extdata {
+				extdata: Some(Extdata {
 					user: vec![
 						User {
 							id: "2".to_string(),
@@ -105,7 +107,7 @@ pub mod external_data {
 							online: "0".to_string(),
 						},
 					],
-				},
+				}),
 			}
 		}
 	}
