@@ -301,6 +301,7 @@ impl GamePlayerInfo {
 		tokio_stream::iter(&self.0)
 	}
 
+	#[allow(dead_code)]
 	pub(crate) fn players_stream(&self) -> impl Stream<Item = &PlayerName> + '_ {
 		tokio_stream::iter(self.0.keys())
 	}
@@ -371,11 +372,5 @@ impl SGamePlayerInfo {
 
 	pub(crate) fn get_player_channels(&self) -> &Option<GamePlayerChannels> {
 		&self.channels
-	}
-
-	pub(crate) fn clear_player_command_channel(&self) {
-		self.channels.as_ref().map(|channels| {
-			channels.command_channel.get_command_channel().clear_rx();
-		});
 	}
 }

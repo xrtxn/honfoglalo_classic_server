@@ -43,12 +43,6 @@ pub mod response {
 		message: ListenResponseType,
 	}
 
-	impl ListenResponse {
-		pub fn new(header: ListenResponseHeader, message: ListenResponseType) -> ListenResponse {
-			ListenResponse { header, message }
-		}
-	}
-
 	#[derive(Serialize, Deserialize, Debug)]
 	#[serde(rename = "L")]
 	pub(crate) struct ListenResponseHeader {

@@ -42,9 +42,6 @@ impl SharedPlayerState {
 		SharedPlayerState(Arc::new(val))
 	}
 
-	pub async fn get_login(&self) -> bool {
-		*self.0.is_logged_in.read().await
-	}
 	#[allow(dead_code)]
 	pub async fn get_listen_ready(&self) -> bool {
 		*self.0.is_listen_ready.read().await
@@ -83,7 +80,7 @@ impl<T: Clone> PlayerChannel<T> {
 		self.rx.recv_async().await
 	}
 
-	pub(crate) fn clear_rx(&self) {
+	pub(crate) fn _clear_rx(&self) {
 		let num = self.rx.len();
 		while let Ok(_) = self.rx.try_recv() {
 			trace!("Clearing message from channel: {}", num);
@@ -92,12 +89,6 @@ impl<T: Clone> PlayerChannel<T> {
 }
 
 pub type ServerCommandChannel = PlayerChannel<ServerCommand>;
-impl ServerCommandChannel {
-	pub fn get_command_channel(&self) -> &PlayerChannel<ServerCommand> {
-		self
-	}
-}
-
 pub type XmlPlayerChannel = PlayerChannel<String>;
 
 pub struct App {
