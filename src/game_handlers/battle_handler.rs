@@ -241,13 +241,18 @@ impl BattleHandler {
 	}
 
 	pub(super) async fn question(&mut self) {
-		let mut qh = QuestionHandler::new(self.game.arc_clone(), QuestionHandlerType::Battle).await;
+		// TODO fix this, not all players should be questioned
+		let players = self.game.arc_clone().read().await.utils.clone();
+		let mut qh =
+			QuestionHandler::new(self.game.arc_clone(), QuestionHandlerType::Battle, players).await;
 		qh.handle_all().await;
 		self.answer_result = qh.answer_result().await;
 	}
 
 	pub(super) async fn optional_tip_question(&self) -> PlayerName {
-		let mut th = TipHandler::new(self.game.arc_clone(), TipHandlerType::Battle).await;
+		// TODO fix this, not all players should be questioned
+		let players = self.game.arc_clone().read().await.utils.clone();
+		let mut th = TipHandler::new(self.game.arc_clone(), TipHandlerType::Battle, players).await;
 		th.handle_all().await
 	}
 

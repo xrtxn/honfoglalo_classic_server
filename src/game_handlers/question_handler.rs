@@ -55,12 +55,12 @@ impl QuestionHandler {
 	pub(crate) async fn new(
 		game: SharedTrivGame,
 		question_handler_type: QuestionHandlerType,
+		players: GamePlayerInfo,
 	) -> QuestionHandler {
-		let players = game.action_players().await;
 		QuestionHandler {
 			game: game.arc_clone(),
 			question_handler_type,
-			question_players: GamePlayerInfo::from(players),
+			question_players: players,
 			answer_result: QuestionAnswerResult::new(),
 		}
 	}
@@ -104,8 +104,10 @@ impl QuestionHandler {
 	}
 
 	async fn get_question_response(&mut self) {
+		trace!("get_question_response");
 		let answer_result = Arc::new(Mutex::new(self.answer_result.clone()));
 		let iter = self.question_players.players_with_info_stream();
+		trace!("get_question_response iter: {:?}", self.question_players);
 		futures::stream::StreamExt::for_each_concurrent(iter, None, |(player, info)| {
 			let game = self.game.arc_clone();
 			let player = *player;
@@ -243,11 +245,10 @@ pub(crate) struct TipHandler {
 }
 
 impl TipHandler {
-	pub(crate) async fn new(game: SharedTrivGame, stage_type: TipHandlerType) -> TipHandler {
-		let players = game.action_players().await;
+	pub(crate) async fn new(game: SharedTrivGame, stage_type: TipHandlerType, players: GamePlayerInfo) -> TipHandler {
 		TipHandler {
 			game: game.arc_clone(),
-			tip_players: GamePlayerInfo::from(players),
+			tip_players: players,
 			tip_handler_type: stage_type,
 			tip_info: TipInfo::new(),
 		}

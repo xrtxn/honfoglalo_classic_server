@@ -1,5 +1,5 @@
-use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
+use rand::prelude::{IteratorRandom, StdRng};
 use tracing::{error, trace};
 
 use crate::game_handlers::question_handler::{QuestionHandler, QuestionHandlerType};
@@ -146,7 +146,7 @@ impl AreaConquerHandler {
 
 	pub(super) async fn question(&self) {
 		let mut qh =
-			QuestionHandler::new(self.game.arc_clone(), QuestionHandlerType::AreaConquer).await;
+			QuestionHandler::new(self.game.arc_clone(), QuestionHandlerType::AreaConquer, self.game.read().await.utils.clone()).await;
 		qh.handle_all().await;
 	}
 

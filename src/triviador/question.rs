@@ -101,7 +101,7 @@ impl Question {
 			option_2: opt_2,
 			option_3: opt_3,
 			option_4: opt_4,
-			icon_url: "client/assets/icons/pokeball.png".to_string(),
+			icon_url: "../assets/icons/pokeball.png".to_string(),
 			color_code: "F3C5C3".to_string(),
 			// {HALF:2000,ANSWERS:2000}
 			help: "{}".to_string(),
@@ -345,7 +345,7 @@ impl TipQuestion {
 			question,
 			allowmark: "1".to_string(),
 			theme: "3".to_string(),
-			icon_url: "client/assets/icons/pokeball.png".to_string(),
+			icon_url: "../assets/icons/pokeball.png".to_string(),
 			color_code: "F3C5C3".to_string(),
 			// todo
 			help: "{}".to_string(),

@@ -77,6 +77,10 @@ pub async fn game(
 					// todo validate login
 					player_state.set_login(true).await;
 					player_state.set_listen_ready(false).await;
+					player_listen_channel
+						.send_message(quick_xml::se::to_string(&VillageSetupRoot::emulate())?)
+						.await
+						.unwrap();
 					if QUICK_BATTLE_EMU {
 						tokio::spawn(async move {
 							ServerGameHandler::new_friendly(
@@ -86,11 +90,6 @@ pub async fn game(
 							)
 							.await;
 						});
-					} else {
-						player_listen_channel
-							.send_message(quick_xml::se::to_string(&VillageSetupRoot::emulate())?)
-							.await
-							.unwrap();
 					}
 					Ok(modified_xml_response(&CommandResponse::ok(
 						PLAYER_ID.get_id(),
@@ -126,19 +125,6 @@ pub async fn game(
 					)))
 				}
 				CommandType::ExitCurrentRoom(_) => {
-					// match player_state.get_current_waithall().await {
-					// 	Waithall::Game => {
-					// 		player_channel
-					// 			.send_message(quick_xml::se::to_string(
-					// 				&GameMenuWaithall::emulate(),
-					// 			)?)
-					// 			.await
-					// 			.unwrap();
-					// 	}
-					// 	Waithall::Village => error!(
-					// 		"ExitCurrentRoom called while in Village, this should not happen"
-					// 	),
-					// }
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,

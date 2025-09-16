@@ -52,7 +52,9 @@ impl FillRemainingHandler {
 	}
 
 	pub(super) async fn tip_question(&mut self) {
-		let mut th = TipHandler::new(self.game.arc_clone(), TipHandlerType::Fill).await;
+		// TODO fix this, not all players should be questioned
+		let players = self.game.arc_clone().read().await.utils.clone();
+		let mut th = TipHandler::new(self.game.arc_clone(), TipHandlerType::Fill, players).await;
 		self.winner = Some(th.handle_all().await);
 		self.game
 			.write()

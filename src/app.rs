@@ -53,11 +53,11 @@ impl SharedPlayerState {
 		*self.0.is_listen_ready.write().await = val;
 	}
 	pub async fn get_current_waithall(&self) -> Waithall {
-        *self.0.current_waithall.read().await
-    }
-    pub async fn set_current_waithall(&self, waithall: Waithall) {
-        *self.0.current_waithall.write().await = waithall;
-    }
+		*self.0.current_waithall.read().await
+	}
+	pub async fn set_current_waithall(&self, waithall: Waithall) {
+		*self.0.current_waithall.write().await = waithall;
+	}
 }
 
 #[derive(Clone, Debug)]
@@ -163,9 +163,12 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 		let mut lines: Vec<&str> = body.lines().collect();
 		let xml_header_string = lines.remove(0);
 		// necessary else for heartbeat requests
-		// todo optimize this
-		let new_body = lines.first().unwrap_or_else(|| &"").to_string();
-		let mut req = Request::from_parts(parts, Body::from(new_body));
+		let new_body = if lines.len() >= 1 {
+			lines.remove(0)
+		} else {
+			""
+		};
+		let mut req = Request::from_parts(parts, Body::from(new_body.to_string()));
 
 		let parsed_header = parse_xml_multiple(xml_header_string).unwrap();
 		req.extensions_mut().insert(parsed_header);

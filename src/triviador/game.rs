@@ -1,5 +1,4 @@
 use std::borrow::Borrow;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde::Serialize;
@@ -13,7 +12,7 @@ use super::available_area::AvailableAreas;
 use super::fill_round::FillRound;
 use super::game_player_data::PlayerName;
 use super::player_points::PlayerPoints;
-use crate::game_handlers::s_game::{GamePlayerInfo, SGamePlayerInfo};
+use crate::game_handlers::s_game::GamePlayerInfo;
 use crate::game_handlers::{send_player_commongame, wait_for_game_ready};
 use crate::triviador::bases::Bases;
 use crate::triviador::cmd::Cmd;
@@ -81,7 +80,11 @@ impl SharedTrivGame {
 		player: &PlayerName,
 		desired_command: ServerCommand,
 	) -> anyhow::Result<ServerCommand> {
-		let timeout_duration = tokio::time::Duration::from_secs(10);
+		trace!(
+			"loop_recv_command for player: {:?}, desired_command: {:?}",
+			player, desired_command
+		);
+		let timeout_duration = tokio::time::Duration::from_secs(15);
 
 		match tokio::time::timeout(timeout_duration, async {
 			let mut command = self.recv_command_channel(player).await?;
@@ -152,28 +155,28 @@ impl SharedTrivGame {
 	}
 
 	// todo only return a stream
-	pub(crate) async fn action_players(&self) -> HashMap<PlayerName, SGamePlayerInfo> {
-		let game_reader = self.read().await;
-		let mut players: HashMap<PlayerName, SGamePlayerInfo> = HashMap::with_capacity(2);
-		let round_info = &game_reader.state.round_info;
-		let active_player = round_info.active_player;
-		players.insert(
-			round_info.active_player,
-			game_reader
-				.utils
-				.get_player(&round_info.active_player)
-				.unwrap()
-				.clone(),
-		);
-		game_reader.utils.get_player(&active_player);
-		if let Some(player) = round_info.attacked_player {
-			players.insert(
-				player,
-				game_reader.utils.get_player(&player).unwrap().clone(),
-			);
-		}
-		players
-	}
+	// pub(crate) async fn action_players(&self) -> HashMap<PlayerName, SGamePlayerInfo> {
+	// 	let game_reader = self.read().await;
+	// 	let mut players: HashMap<PlayerName, SGamePlayerInfo> = HashMap::with_capacity(2);
+	// 	let round_info = &game_reader.state.round_info;
+	// 	let active_player = round_info.active_player;
+	// 	players.insert(
+	// 		round_info.active_player,
+	// 		game_reader
+	// 			.utils
+	// 			.get_player(&round_info.active_player)
+	// 			.unwrap()
+	// 			.clone(),
+	// 	);
+	// 	game_reader.utils.get_player(&active_player);
+	// 	if let Some(player) = round_info.attacked_player {
+	// 		players.insert(
+	// 			player,
+	// 			game_reader.utils.get_player(&player).unwrap().clone(),
+	// 		);
+	// 	}
+	// 	players
+	// }
 }
 
 #[skip_serializing_none]
