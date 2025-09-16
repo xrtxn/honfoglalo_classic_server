@@ -7,7 +7,6 @@ use tokio_stream::StreamExt;
 use tracing::{error, trace, warn};
 
 use super::s_game::GamePlayerInfo;
-use crate::emulator::Emulator;
 use crate::triviador::areas::Area;
 use crate::triviador::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerName;
@@ -79,7 +78,8 @@ impl QuestionHandler {
 				self.game.write().await.state.game_state.phase = 4;
 			}
 		}
-		let q = Question::emulate();
+		let db = self.game.arc_clone().write().await.db.clone();
+		let q = Question::get_from_db(&db).await;
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
 		let iter = utils.active_players_stream();
@@ -245,7 +245,11 @@ pub(crate) struct TipHandler {
 }
 
 impl TipHandler {
-	pub(crate) async fn new(game: SharedTrivGame, stage_type: TipHandlerType, players: GamePlayerInfo) -> TipHandler {
+	pub(crate) async fn new(
+		game: SharedTrivGame,
+		stage_type: TipHandlerType,
+		players: GamePlayerInfo,
+	) -> TipHandler {
 		TipHandler {
 			game: game.arc_clone(),
 			tip_players: players,
@@ -269,7 +273,8 @@ impl TipHandler {
 				self.game.write().await.state.game_state.phase = 10;
 			}
 		}
-		let tq = TipQuestion::emulate();
+		let db = self.game.arc_clone().write().await.db.clone();
+		let tq = TipQuestion::get_from_db(&db).await;
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
 		let iter = utils.active_players_stream();

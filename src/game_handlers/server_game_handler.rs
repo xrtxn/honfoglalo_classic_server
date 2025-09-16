@@ -1,3 +1,4 @@
+use sqlx::PgPool;
 use tokio_stream::StreamExt;
 use tracing::info;
 
@@ -18,6 +19,7 @@ impl ServerGameHandler {
 		player_channel: XmlPlayerChannel,
 		command_channel: ServerCommandChannel,
 		game_id: u32,
+		db: PgPool,
 	) {
 		let players = PlayerInfo {
 			p1_name: "xrtxn".to_string(),
@@ -32,7 +34,7 @@ impl ServerGameHandler {
 			rules: "0,0".to_string(),
 		};
 
-		let game = SharedTrivGame::new(TriviadorGame::new_game(players.clone()));
+		let game = SharedTrivGame::new(TriviadorGame::new_game(players.clone(), db));
 		// todo check
 		let mut server_game_players = GamePlayerInfo::new();
 		if players.pd1.is_bot() {

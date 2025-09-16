@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 use serde_with::skip_serializing_none;
+use sqlx::PgPool;
 use tokio::sync::RwLock;
 use tokio_stream::StreamExt;
 use tracing::trace;
@@ -191,11 +192,13 @@ pub struct TriviadorGame {
 	pub(crate) cmd: Option<Cmd>,
 	#[serde(skip)]
 	pub(crate) utils: GamePlayerInfo,
+	#[serde(skip)]
+	pub(crate) db: PgPool,
 }
 
 impl TriviadorGame {
 	/// Creates a new triviador game
-	pub(crate) fn new_game(player_info: PlayerInfo) -> TriviadorGame {
+	pub(crate) fn new_game(player_info: PlayerInfo, db: PgPool) -> TriviadorGame {
 		TriviadorGame {
 			state: TriviadorState {
 				map_name: "MAP_WD".to_string(),
@@ -223,6 +226,7 @@ impl TriviadorGame {
 			players: Some(player_info),
 			cmd: None,
 			utils: GamePlayerInfo::new(),
+			db,
 		}
 	}
 }

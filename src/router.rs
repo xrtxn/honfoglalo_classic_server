@@ -55,7 +55,7 @@ pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 
 #[axum::debug_handler]
 pub async fn game(
-	_db: Extension<PgPool>,
+	db: Extension<PgPool>,
 	xml_header: Extension<BodyChannelType>,
 	player_state: Extension<SharedPlayerState>,
 	friendly_rooms: Extension<FriendlyRooms>,
@@ -87,6 +87,7 @@ pub async fn game(
 								player_listen_channel.0,
 								server_command_channel.0,
 								GAME_ID,
+								db.0,
 							)
 							.await;
 						});
@@ -124,12 +125,9 @@ pub async fn game(
 						msg
 					)))
 				}
-				CommandType::ExitCurrentRoom(_) => {
-					Ok(modified_xml_response(&CommandResponse::ok(
-						comm.client_id,
-						comm.mn,
-					))?)
-				}
+				CommandType::ExitCurrentRoom(_) => Ok(modified_xml_response(
+					&CommandResponse::ok(comm.client_id, comm.mn),
+				)?),
 				CommandType::CloseGame => {
 					//send back to the menu
 					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
@@ -158,7 +156,6 @@ pub async fn game(
 					if matches!(request_room.opp1, Robot)
 						|| matches!(request_room.opp1, Player(_))
 							&& matches!(request_room.opp2, Robot)
-						|| matches!(request_room.opp1, Player(_))
 					{
 						room.allow_game();
 					}
@@ -200,6 +197,7 @@ pub async fn game(
 							player_listen_channel.0,
 							server_command_channel.0,
 							GAME_ID,
+							db.0,
 						)
 						.await;
 					});

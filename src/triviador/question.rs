@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize, Serializer};
 use serde_with::skip_serializing_none;
+use sqlx::PgPool;
 use tracing::error;
 
 use super::game_player_data::PlayerName;
@@ -92,11 +93,12 @@ impl Question {
 		opt_2: String,
 		opt_3: String,
 		opt_4: String,
+		theme: String,
 	) -> Question {
 		Question {
 			question,
 			allowmark: "1".to_string(),
-			theme: "3".to_string(),
+			theme,
 			option_1: opt_1,
 			option_2: opt_2,
 			option_3: opt_3,
@@ -106,6 +108,30 @@ impl Question {
 			// {HALF:2000,ANSWERS:2000}
 			help: "{}".to_string(),
 		}
+	}
+
+	pub(crate) async fn get_from_db(pool: &PgPool) -> Question {
+		let rec = sqlx::query!(
+			r#"SELECT question,
+		    answer1,
+			answer2,
+			answer3,
+			answer4,
+			theme
+			FROM choice_questions ORDER BY RANDOM() LIMIT 1"#,
+		)
+		.fetch_one(pool)
+		.await
+		.unwrap();
+
+		Question::new(
+			rec.question,
+			rec.answer1,
+			rec.answer2,
+			rec.answer3,
+			rec.answer4,
+			rec.theme,
+		)
 	}
 }
 
@@ -117,6 +143,7 @@ impl Emulator for Question {
 			"Digimon".to_string(),
 			"Yugioh".to_string(),
 			"Dragonball".to_string(),
+			"3".to_string(),
 		)
 	}
 }
@@ -167,7 +194,9 @@ impl QuestionAnswerResult {
 	pub(crate) fn is_player_correct(&self, player: &PlayerName) -> bool {
 		let correct_answer = match self.good {
 			None => {
-				error!("Unable to check if answer is correct, good answer not set, setting to placeholder 1");
+				error!(
+					"Unable to check if answer is correct, good answer not set, setting to placeholder 1"
+				);
 				1
 			}
 			Some(_) => self.good.unwrap(),
@@ -340,16 +369,30 @@ pub struct TipQuestion {
 }
 
 impl TipQuestion {
-	pub(crate) fn new(question: String) -> TipQuestion {
+	pub(crate) fn new(question: String, theme: String) -> TipQuestion {
 		TipQuestion {
 			question,
 			allowmark: "1".to_string(),
-			theme: "3".to_string(),
+			theme,
 			icon_url: "../assets/icons/pokeball.png".to_string(),
 			color_code: "F3C5C3".to_string(),
 			// todo
 			help: "{}".to_string(),
 		}
+	}
+
+	pub(crate) async fn get_from_db(pool: &PgPool) -> TipQuestion {
+		let rec = sqlx::query!(
+			r#"SELECT
+			question,
+			theme
+			FROM tip_questions ORDER BY RANDOM() LIMIT 1"#,
+		)
+		.fetch_one(pool)
+		.await
+		.unwrap();
+
+		TipQuestion::new(rec.question, rec.theme)
 	}
 }
 
@@ -358,6 +401,7 @@ impl Emulator for TipQuestion {
 		TipQuestion::new(
 			"What is the National Pokédex number of Bulbasaur, the first Pokémon listed?"
 				.to_string(),
+			"3".to_string(),
 		)
 	}
 }
