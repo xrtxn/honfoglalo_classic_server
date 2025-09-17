@@ -221,7 +221,7 @@ impl Areas {
 
 		for area in self.0.values_mut() {
 			if area.owner == old_owner {
-				total_points = total_points + area.value.get_points() as u16;
+				total_points += area.value.get_points();
 				area.conquer_area_from_base(new_owner).await.unwrap();
 			}
 		}

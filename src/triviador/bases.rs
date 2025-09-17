@@ -119,7 +119,7 @@ impl FromStr for Bases {
 		for (i, base_str) in vals.iter().enumerate() {
 			rest.insert(
 				// increase by 1 because we don't have Player0
-				PlayerName::try_from(i as u8 + 1)?,
+				PlayerName::from(i as u8 + 1),
 				Base::from_str(base_str)?,
 			);
 		}

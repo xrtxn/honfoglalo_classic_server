@@ -68,7 +68,7 @@ impl BaseHandler {
 
 	pub(super) async fn start_selection(&self) {
 		let mut game_writer = self.game.write().await;
-		let active_player = game_writer.state.active_player.clone().unwrap();
+		let active_player = game_writer.state.active_player.unwrap();
 		game_writer.state.game_state.phase = 1;
 		game_writer.state.round_info = RoundInfo {
 			mini_phase_num: active_player as u8,
@@ -103,7 +103,7 @@ impl BaseHandler {
 	}
 
 	pub(super) async fn selection_response(&self) {
-		let active_player = self.game.read().await.state.active_player.clone().unwrap();
+		let active_player = self.game.read().await.state.active_player.unwrap();
 		if !self
 			.game
 			.read()

@@ -88,12 +88,12 @@ impl QuestionHandler {
 			let state = state.clone();
 			let q = q.clone();
 			let mut qsr = QuestionStageResponse::new_question(state, q);
-			if self.question_players.get_player(&player).is_none() {
+			if self.question_players.get_player(player).is_none() {
 				qsr.cmd = None; // do not send cmd to non question players
 			}
 			async move {
 				if let Err(e) = game
-					.send_xml_channel(&player, quick_xml::se::to_string(&qsr).unwrap())
+					.send_xml_channel(player, quick_xml::se::to_string(&qsr).unwrap())
 					.await
 				{
 					warn!("Failed to send question to player {}: {}", player, e);
@@ -187,11 +187,11 @@ impl QuestionHandler {
 				self.game.write().await.state.game_state.phase += 1;
 				let mut iter = self.question_players.active_players_stream();
 				while let Some(player) = iter.next().await {
-					if self.answer_result.is_player_correct(&player) {
+					if self.answer_result.is_player_correct(player) {
 						Area::area_occupied(
 							self.game.arc_clone(),
 							*player,
-							selection.get_player_county(&player).cloned(),
+							selection.get_player_county(player).cloned(),
 						)
 						.await
 						.unwrap();
@@ -200,7 +200,7 @@ impl QuestionHandler {
 							.await
 							.state
 							.players_points
-							.change_player_points(&player, 200);
+							.change_player_points(player, 200);
 					} else {
 						self.game
 							.write()
@@ -281,12 +281,12 @@ impl TipHandler {
 		futures::stream::StreamExt::for_each_concurrent(iter, None, |player| {
 			let game = self.game.arc_clone();
 			let mut tip_stage = TipStageResponse::new_tip_question(state.clone(), tq.clone());
-			if self.tip_players.get_player(&player).is_none() {
+			if self.tip_players.get_player(player).is_none() {
 				tip_stage.cmd = None;
 			}
 			async move {
 				if let Err(e) = game
-					.send_xml_channel(&player, quick_xml::se::to_string(&tip_stage).unwrap())
+					.send_xml_channel(player, quick_xml::se::to_string(&tip_stage).unwrap())
 					.await
 				{
 					warn!("Failed to send tip request to player {}: {}", player, e);

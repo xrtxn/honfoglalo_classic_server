@@ -65,8 +65,8 @@ impl FillRemainingHandler {
 	}
 
 	pub(super) async fn ask_desired_area(&self) {
-		let active_player = self.winner.clone().unwrap();
-		self.game.write().await.state.active_player = Some(active_player.clone());
+		let active_player = self.winner.unwrap();
+		self.game.write().await.state.active_player = Some(active_player);
 		let mut game_writer = self.game.write().await;
 		game_writer.state.game_state.phase = 4;
 
@@ -103,8 +103,8 @@ impl FillRemainingHandler {
 
 	pub(super) async fn desired_area_response(&self) {
 		self.game.write().await.state.game_state.phase = 6;
-		let active_player = self.winner.clone().unwrap();
-		self.game.write().await.state.active_player = Some(active_player.clone());
+		let active_player = self.winner.unwrap();
+		self.game.write().await.state.active_player = Some(active_player);
 		if self
 			.game
 			.read()

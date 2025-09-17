@@ -117,7 +117,7 @@ impl SharedTrivGame {
 		futures::stream::StreamExt::for_each_concurrent(iter, None, |player| {
 			let game = self.arc_clone();
 			async move {
-				wait_for_game_ready(game.borrow(), &player).await;
+				wait_for_game_ready(game.borrow(), player).await;
 			}
 		})
 		.await;

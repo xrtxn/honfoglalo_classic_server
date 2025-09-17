@@ -116,7 +116,9 @@ pub async fn game(
 					Ok(modified_xml_response(&CommandResponse::error())?)
 				}
 				CommandType::GetExternalData(_) => {
-					if player_state.get_current_waithall().await == Waithall::Game {}
+					if player_state.get_current_waithall().await == Waithall::Game {
+						todo!();
+					}
 
 					let msg = quick_xml::se::to_string(&ExternalFriendsRoot::emulate())?;
 					Ok(remove_root_tag(format!(

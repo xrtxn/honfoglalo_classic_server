@@ -64,10 +64,10 @@ impl AvailableAreas {
 
 	fn filter_selected_areas(&mut self, selection: &Selection) {
 		for player in PlayerName::all() {
-			if let Some(county) = selection.get_player_county(&player) {
-				if self.0.contains(county) {
-					self.0.remove(county);
-				}
+			if let Some(county) = selection.get_player_county(&player)
+				&& self.0.contains(county)
+			{
+				self.0.remove(county);
 			}
 		}
 	}
@@ -344,7 +344,9 @@ mod tests {
 		let decoded = decode_available_areas(i32::from_str_radix("07FFFF", 16).unwrap());
 		assert_eq!(
 			decoded,
-			vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+			vec![
+				1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
+			]
 		);
 		assert_eq!(
 			AvailableAreas::encode_available_areas(vec![

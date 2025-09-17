@@ -66,7 +66,7 @@ impl FromStr for Selection {
 
 			rest.insert(
 				// increase by 1 because we don't have Player0
-				PlayerName::try_from(i as u8 + 1)?,
+				PlayerName::from(i as u8 + 1),
 				County::try_from(value)?,
 			);
 		}

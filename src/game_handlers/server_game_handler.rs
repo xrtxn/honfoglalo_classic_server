@@ -63,7 +63,7 @@ impl ServerGameHandler {
 
 		let mut iter = server_game_players.players_with_info_stream();
 		while let Some((player, info)) = iter.next().await {
-			game.write().await.utils.add(player.clone(), info.clone());
+			game.write().await.utils.add(*player, info.clone());
 			if info.is_player() {
 				game.write()
 					.await

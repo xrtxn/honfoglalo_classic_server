@@ -75,7 +75,7 @@ impl SGame {
 			base_handler.announcement().await;
 			// pick a base for everyone
 			for (player, _) in self.players.0.clone() {
-				self.game.write().await.state.active_player = Some(player.clone());
+				self.game.write().await.state.active_player = Some(player);
 				base_handler.start_selection().await;
 				base_handler.selection_response().await;
 			}
@@ -288,11 +288,11 @@ impl GamePlayerInfo {
 	}
 
 	pub(crate) fn get_player(&self, player: &PlayerName) -> Option<&SGamePlayerInfo> {
-		self.0.get(&player)
+		self.0.get(player)
 	}
 
 	pub(crate) fn get_player_mut(&mut self, player: &PlayerName) -> Option<&mut SGamePlayerInfo> {
-		self.0.get_mut(&player)
+		self.0.get_mut(player)
 	}
 
 	pub(crate) fn players_with_info_stream(

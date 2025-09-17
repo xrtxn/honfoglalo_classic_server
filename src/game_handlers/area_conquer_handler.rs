@@ -54,7 +54,7 @@ impl AreaConquerHandler {
 
 	pub(super) async fn ask_desired_area(&self) {
 		let game_reader = self.game.read().await;
-		let active_player = game_reader.state.active_player.clone().unwrap();
+		let active_player = game_reader.state.active_player.unwrap();
 		let areas = &game_reader.state.areas_info;
 		let selection = &game_reader.state.selection;
 		let available = AvailableAreas::get_conquerable_areas(areas, selection, active_player);
@@ -98,7 +98,7 @@ impl AreaConquerHandler {
 	}
 
 	pub(super) async fn desired_area_response(&self) {
-		let active_player = self.game.read().await.state.active_player.clone().unwrap();
+		let active_player = self.game.read().await.state.active_player.unwrap();
 		if self
 			.game
 			.read()

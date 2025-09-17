@@ -82,7 +82,7 @@ impl<T: Clone> PlayerChannel<T> {
 
 	pub(crate) fn _clear_rx(&self) {
 		let num = self.rx.len();
-		while let Ok(_) = self.rx.try_recv() {
+		while self.rx.try_recv().is_ok() {
 			trace!("Clearing message from channel: {}", num);
 		}
 	}
@@ -163,7 +163,7 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 		let mut lines: Vec<&str> = body.lines().collect();
 		let xml_header_string = lines.remove(0);
 		// necessary else for heartbeat requests
-		let new_body = if lines.len() >= 1 {
+		let new_body = if !lines.is_empty() {
 			lines.remove(0)
 		} else {
 			""
