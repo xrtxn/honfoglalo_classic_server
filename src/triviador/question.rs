@@ -84,6 +84,8 @@ pub struct Question {
 	pub color_code: String,
 	#[serde(rename = "@HELP")]
 	pub help: String,
+	#[serde(skip)]
+	pub good: Option<u8>,
 }
 
 impl Question {
@@ -94,6 +96,7 @@ impl Question {
 		opt_3: String,
 		opt_4: String,
 		theme: String,
+		good: Option<u8>,
 	) -> Question {
 		Question {
 			question,
@@ -107,6 +110,7 @@ impl Question {
 			color_code: "F3C5C3".to_string(),
 			// {HALF:2000,ANSWERS:2000}
 			help: "{}".to_string(),
+			good,
 		}
 	}
 
@@ -117,7 +121,8 @@ impl Question {
 			answer2,
 			answer3,
 			answer4,
-			theme
+			theme,
+			good
 			FROM choice_questions ORDER BY RANDOM() LIMIT 1"#,
 		)
 		.fetch_one(pool)
@@ -131,6 +136,7 @@ impl Question {
 			rec.answer3,
 			rec.answer4,
 			rec.theme,
+			Some(rec.good as u8),
 		)
 	}
 }
@@ -144,6 +150,7 @@ impl Emulator for Question {
 			"Yugioh".to_string(),
 			"Dragonball".to_string(),
 			"3".to_string(),
+			Some(1),
 		)
 	}
 }
@@ -366,10 +373,12 @@ pub struct TipQuestion {
 	pub color_code: String,
 	#[serde(rename = "@HELP")]
 	pub help: String,
+	#[serde(skip)]
+	pub good: Option<i32>,
 }
 
 impl TipQuestion {
-	pub(crate) fn new(question: String, theme: String) -> TipQuestion {
+	pub(crate) fn new(question: String, theme: String, good: Option<i32>) -> TipQuestion {
 		TipQuestion {
 			question,
 			allowmark: "1".to_string(),
@@ -378,6 +387,7 @@ impl TipQuestion {
 			color_code: "F3C5C3".to_string(),
 			// todo
 			help: "{}".to_string(),
+			good,
 		}
 	}
 
@@ -385,14 +395,15 @@ impl TipQuestion {
 		let rec = sqlx::query!(
 			r#"SELECT
 			question,
-			theme
+			theme,
+			good
 			FROM tip_questions ORDER BY RANDOM() LIMIT 1"#,
 		)
 		.fetch_one(pool)
 		.await
 		.unwrap();
 
-		TipQuestion::new(rec.question, rec.theme)
+		TipQuestion::new(rec.question, rec.theme, Some(rec.good))
 	}
 }
 
@@ -402,6 +413,7 @@ impl Emulator for TipQuestion {
 			"What is the National Pokédex number of Bulbasaur, the first Pokémon listed?"
 				.to_string(),
 			"3".to_string(),
+			Some(1),
 		)
 	}
 }

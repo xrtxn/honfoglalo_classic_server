@@ -40,6 +40,7 @@ pub(crate) struct QuestionHandler {
 	question_handler_type: QuestionHandlerType,
 	question_players: GamePlayerInfo,
 	answer_result: QuestionAnswerResult,
+	answer: Option<u8>,
 }
 
 impl QuestionHandler {
@@ -61,6 +62,7 @@ impl QuestionHandler {
 			question_handler_type,
 			question_players: players,
 			answer_result: QuestionAnswerResult::new(),
+			answer: None,
 		}
 	}
 
@@ -68,7 +70,7 @@ impl QuestionHandler {
 		self.answer_result.clone()
 	}
 
-	pub(super) async fn send_question(&self) {
+	pub(super) async fn send_question(&mut self) {
 		trace!("send_question");
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
@@ -79,7 +81,8 @@ impl QuestionHandler {
 			}
 		}
 		let db = self.game.arc_clone().write().await.db.clone();
-		let q = Question::get_from_db(&db).await;
+		let q = Some(Question::get_from_db(&db).await);
+		self.answer = q.as_ref().unwrap().good;
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
 		let iter = utils.active_players_stream();
@@ -87,7 +90,7 @@ impl QuestionHandler {
 			let game = self.game.arc_clone();
 			let state = state.clone();
 			let q = q.clone();
-			let mut qsr = QuestionStageResponse::new_question(state, q);
+			let mut qsr = QuestionStageResponse::new_question(state, q.unwrap());
 			if self.question_players.get_player(player).is_none() {
 				qsr.cmd = None; // do not send cmd to non question players
 			}
@@ -151,7 +154,7 @@ impl QuestionHandler {
 
 	async fn send_player_answers(&mut self) {
 		trace!("send_player_answers");
-		self.answer_result.good = Some(1);
+		self.answer_result.good = self.answer;
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase += 1;
@@ -242,6 +245,7 @@ pub(crate) struct TipHandler {
 	tip_players: GamePlayerInfo,
 	tip_handler_type: TipHandlerType,
 	tip_info: TipInfo,
+	good: Option<i32>,
 }
 
 impl TipHandler {
@@ -255,6 +259,7 @@ impl TipHandler {
 			tip_players: players,
 			tip_handler_type: stage_type,
 			tip_info: TipInfo::new(),
+			good: None,
 		}
 	}
 
@@ -264,7 +269,7 @@ impl TipHandler {
 		self.send_player_answers().await
 	}
 
-	async fn send_tip_request(&self) {
+	async fn send_tip_request(&mut self) {
 		match self.tip_handler_type {
 			TipHandlerType::Fill => {
 				self.game.write().await.state.game_state.phase = 1;
@@ -275,6 +280,7 @@ impl TipHandler {
 		}
 		let db = self.game.arc_clone().write().await.db.clone();
 		let tq = TipQuestion::get_from_db(&db).await;
+		self.good = tq.good;
 		let state = self.game.read().await.state.clone();
 		let utils = self.game.read().await.utils.clone();
 		let iter = utils.active_players_stream();
@@ -345,7 +351,7 @@ impl TipHandler {
 	//todo cleanup
 	async fn send_player_answers(&self) -> PlayerName {
 		// todo placeholder
-		let good = 1;
+		let good = self.good.unwrap();
 		// both need to be increased by 2
 		self.game.write().await.state.game_state.phase += 2;
 
