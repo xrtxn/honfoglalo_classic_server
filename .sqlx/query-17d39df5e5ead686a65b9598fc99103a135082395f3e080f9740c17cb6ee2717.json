@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT question,\n\t\t    answer1,\n\t\t\tanswer2,\n\t\t\tanswer3,\n\t\t\tanswer4,\n\t\t\ttheme,\n\t\t\tgood\n\t\t\tFROM choice_questions ORDER BY RANDOM() LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "question",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "answer1",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "answer2",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "answer3",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "answer4",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "theme",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "good",
+        "type_info": "Int2"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "17d39df5e5ead686a65b9598fc99103a135082395f3e080f9740c17cb6ee2717"
+}

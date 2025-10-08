@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n\t\t\tquestion,\n\t\t\ttheme,\n\t\t\tgood\n\t\t\tFROM tip_questions ORDER BY RANDOM() LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "question",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "theme",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "good",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "3aab7db68bf78598e679e7a38031e3b5676a787af2d611bbd3b9099eb3385c28"
+}
