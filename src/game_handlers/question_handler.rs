@@ -188,7 +188,7 @@ impl QuestionHandler {
 		match self.question_handler_type {
 			QuestionHandlerType::AreaConquer => {
 				self.game.write().await.state.game_state.phase += 1;
-				let mut iter = self.question_players.active_players_stream();
+				let mut iter = self.question_players.players_stream();
 				while let Some(player) = iter.next().await {
 					if self.answer_result.is_player_correct(player) {
 						Area::area_occupied(

@@ -108,19 +108,15 @@ impl AreaConquerHandler {
 			.unwrap()
 			.is_player()
 		{
-			match self
+			if let ServerCommand::SelectArea(val) = self
 				.game
 				.recv_command_channel(&active_player)
 				.await
-				.unwrap()
-			{
-				ServerCommand::SelectArea(val) => {
+				.unwrap() {
 					self.new_area_selected(val, active_player).await.unwrap();
-				}
-				_ => {
+				} else {
 					error!("Invalid command");
 				}
-			}
 			trace!("command received");
 		} else {
 			let readgame = self.game.read().await;
@@ -145,8 +141,12 @@ impl AreaConquerHandler {
 	}
 
 	pub(super) async fn question(&self) {
-		let mut qh =
-			QuestionHandler::new(self.game.arc_clone(), QuestionHandlerType::AreaConquer, self.game.read().await.utils.clone()).await;
+		let mut qh = QuestionHandler::new(
+			self.game.arc_clone(),
+			QuestionHandlerType::AreaConquer,
+			self.game.read().await.utils.clone(),
+		)
+		.await;
 		qh.handle_all().await;
 	}
 
