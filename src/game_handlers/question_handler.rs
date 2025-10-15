@@ -131,11 +131,9 @@ impl QuestionHandler {
 						}
 					}
 				} else {
-					// todo not necessary to sleep, we can just modify the answer result directly
-					tokio::time::sleep(std::time::Duration::from_millis(1234)).await; // Simulate delay for bots
+					tokio::time::sleep(std::time::Duration::from_millis(7331)).await; // Simulate delay for bots
 					let mut rng = StdRng::from_entropy();
-					let random_answer: u8 = rng.gen_range(1..=1);
-					// let random_answer: u8 = rng.gen_range(1..=4);
+					let random_answer: u8 = rng.gen_range(1..=4);
 					answer_result
 						.lock()
 						.await
@@ -331,7 +329,7 @@ impl TipHandler {
 						}
 					}
 				} else {
-					tokio::time::sleep(std::time::Duration::from_millis(1234)).await; // Simulate delay for bots
+					tokio::time::sleep(std::time::Duration::from_millis(7331)).await; // Simulate delay for bots
 					let mut rng = StdRng::from_entropy();
 					let random_answer = rng.gen_range(1..100);
 					tip_info.lock().await.add_player_tip(
