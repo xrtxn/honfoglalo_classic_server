@@ -26,7 +26,7 @@ use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::start::friendly_game::OpponentType;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
-const QUICK_BATTLE_EMU: bool = false;
+const QUICK_BATTLE_EMU: bool = true;
 
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this

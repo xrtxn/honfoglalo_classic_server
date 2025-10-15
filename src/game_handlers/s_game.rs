@@ -155,8 +155,7 @@ impl SGame {
 			warn!("add battle emu");
 		} else {
 			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
-			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
-			let wo = WarOrder::from(vec![3, 2, 2, 3, 2, 3, 1, 2, 3, 1, 2, 3]);
+			let wo = WarOrder::standard_round();
 			self.game.write().await.state.war_order = Some(wo.clone());
 
 			// setup battle handler

@@ -1,6 +1,6 @@
+use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
-use rand::SeedableRng;
 use serde::{Serialize, Serializer};
 use tracing::error;
 
@@ -14,7 +14,7 @@ pub struct WarOrder {
 
 // todo account for players getting a base
 impl WarOrder {
-	pub const NORMAL_ROUND_COUNT: u8 = 6;
+	pub(crate) const NORMAL_ROUND_COUNT: u8 = 6;
 	pub(crate) fn new_random_with_size(mut round_count: u8) -> WarOrder {
 		let mut rng = StdRng::from_entropy();
 		if round_count > 6 {
@@ -22,7 +22,7 @@ impl WarOrder {
 			round_count = 6;
 		}
 		let mut order = Vec::with_capacity(round_count as usize * 3);
-		for _ in 0..round_count {
+		for _ in 1..=round_count {
 			let mut vec: Vec<PlayerName> = vec![
 				PlayerName::Player1,
 				PlayerName::Player2,
@@ -32,6 +32,20 @@ impl WarOrder {
 			order.append(&mut vec);
 		}
 		WarOrder { order }
+	}
+
+	pub(crate) fn standard_round() -> WarOrder {
+		// todo make the last round calculated
+		// the first should be the point leader, second is the second player, and the last is the last player
+		let mut order = Vec::with_capacity(18);
+		for round in 0..6 {
+			// this shifts around players starting from the first player in each round
+			let start = round % 3;
+			order.push(PlayerName::from((start + 1) as u8));
+			order.push(PlayerName::from(((start + 1) % 3 + 1) as u8));
+			order.push(PlayerName::from(((start + 2) % 3 + 1) as u8));
+		}
+		WarOrder::from(order)
 	}
 
 	fn serialize(&self) -> String {
