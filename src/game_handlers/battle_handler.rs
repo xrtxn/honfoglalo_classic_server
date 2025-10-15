@@ -305,17 +305,16 @@ impl BattleHandler {
 	pub(super) async fn basic_battle_decision(&self) {
 		if let Some(win) = self.winner {
 			let mut game_write = self.game.write().await;
+			let selected_county = *game_write
+				.state
+				.selection
+				.get_selection(&self.attacker)
+				.expect("Attacker has no areas selected");
 			if self.attacker == win {
-				let sel = *game_write
-					.state
-					.selection
-					.get_selection(&self.attacker)
-					.expect("Attacker has no areas selected");
-
 				let area = game_write
 					.state
 					.areas_info
-					.get_area(&sel)
+					.get_area(&selected_county)
 					.expect("Area not found after conquering")
 					.clone();
 
@@ -333,7 +332,7 @@ impl BattleHandler {
 				game_write
 					.state
 					.areas_info
-					.get_area_mut(&sel)
+					.get_area_mut(&selected_county)
 					.expect("Area not found")
 					.conquer_area(self.attacker)
 					.await
@@ -343,6 +342,10 @@ impl BattleHandler {
 					.state
 					.players_points
 					.change_player_points(&self.defender, 100);
+				game_write
+					.state
+					.available_areas
+					.push_county(selected_county);
 			};
 		}
 
