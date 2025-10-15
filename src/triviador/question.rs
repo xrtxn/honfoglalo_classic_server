@@ -79,9 +79,9 @@ pub struct Question {
 	#[serde(rename = "@OP4")]
 	pub option_4: String,
 	#[serde(rename = "@ICON_URL")]
-	pub icon_url: String,
+	pub icon_url: Option<String>,
 	#[serde(rename = "@COLOR_CODE")]
-	pub color_code: String,
+	pub color_code: Option<String>,
 	#[serde(rename = "@HELP")]
 	pub help: String,
 	#[serde(skip)]
@@ -106,8 +106,8 @@ impl Question {
 			option_2: opt_2,
 			option_3: opt_3,
 			option_4: opt_4,
-			icon_url: "../assets/icons/pokeball.png".to_string(),
-			color_code: "F3C5C3".to_string(),
+			icon_url: None,
+			color_code: None,
 			// {HALF:2000,ANSWERS:2000}
 			help: "{}".to_string(),
 			good,
@@ -368,9 +368,9 @@ pub struct TipQuestion {
 	#[serde(rename = "@THEME")]
 	pub theme: String,
 	#[serde(rename = "@ICON_URL")]
-	pub icon_url: String,
+	pub icon_url: Option<String>,
 	#[serde(rename = "@COLOR_CODE")]
-	pub color_code: String,
+	pub color_code: Option<String>,
 	#[serde(rename = "@HELP")]
 	pub help: String,
 	#[serde(skip)]
@@ -383,8 +383,8 @@ impl TipQuestion {
 			question,
 			allowmark: "1".to_string(),
 			theme,
-			icon_url: "../assets/icons/pokeball.png".to_string(),
-			color_code: "F3C5C3".to_string(),
+			icon_url: None,
+			color_code: None,
 			// todo
 			help: "{}".to_string(),
 			good,
