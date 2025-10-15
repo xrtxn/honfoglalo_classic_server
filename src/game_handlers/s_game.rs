@@ -29,8 +29,8 @@ pub(crate) struct SGame {
 pub(crate) mod emulation_config {
 	//todo read from .env or similar
 	pub(crate) const BASE_SELECTION: bool = true;
-	pub(crate) const AREA_SELECTION: bool = false;
-	pub(crate) const FILL_REMAINING: bool = false;
+	pub(crate) const AREA_SELECTION: bool = true;
+	pub(crate) const FILL_REMAINING: bool = true;
 	pub(crate) const BATTLE: bool = false;
 }
 
@@ -156,7 +156,7 @@ impl SGame {
 		} else {
 			let mut battle_handler = BattleHandler::new(self.game.arc_clone());
 			// let wo = WarOrder::new_random_with_size(WarOrder::NORMAL_ROUND_COUNT);
-			let wo = WarOrder::from(vec![3,2,2, 3, 2, 3, 1, 2, 3, 1, 2, 3]);
+			let wo = WarOrder::from(vec![3, 2, 2, 3, 2, 3, 1, 2, 3, 1, 2, 3]);
 			self.game.write().await.state.war_order = Some(wo.clone());
 
 			// setup battle handler
@@ -325,6 +325,17 @@ impl GamePlayerInfo {
 		&self,
 	) -> impl Stream<Item = (&PlayerName, &SGamePlayerInfo)> + '_ {
 		tokio_stream::iter(&self.0).filter(|(_, info)| !info.is_player())
+	}
+
+	pub(crate) fn retain_players(&self, retainable_players: Vec<PlayerName>) -> GamePlayerInfo {
+		let mut new_map = HashMap::with_capacity(retainable_players.len());
+		for player in retainable_players {
+			if let Some(info) = self.0.get(&player) {
+				new_map.insert(player, info.clone());
+			}
+		}
+		trace!("retained players: {:?}", new_map.keys());
+		GamePlayerInfo(new_map)
 	}
 }
 

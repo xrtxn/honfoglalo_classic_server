@@ -233,8 +233,15 @@ impl BattleHandler {
 	}
 
 	pub(super) async fn question(&mut self) {
-		// TODO fix this, not all players should be questioned
-		let players = self.game.arc_clone().read().await.utils.clone();
+		//todo improve logic of storing battling players
+		let players = self
+			.game
+			.arc_clone()
+			.read()
+			.await
+			.utils
+			.clone()
+			.retain_players(vec![self.attacker, self.defender]);
 		let mut qh =
 			QuestionHandler::new(self.game.arc_clone(), QuestionHandlerType::Battle, players).await;
 		qh.handle_all().await;
@@ -242,8 +249,14 @@ impl BattleHandler {
 	}
 
 	pub(super) async fn optional_tip_question(&self) -> PlayerName {
-		// TODO fix this, not all players should be questioned
-		let players = self.game.arc_clone().read().await.utils.clone();
+		let players = self
+			.game
+			.arc_clone()
+			.read()
+			.await
+			.utils
+			.clone()
+			.retain_players(vec![self.attacker, self.defender]);
 		let mut th = TipHandler::new(self.game.arc_clone(), TipHandlerType::Battle, players).await;
 		th.handle_all().await
 	}
@@ -373,10 +386,7 @@ impl BattleHandler {
 					.areas_info
 					.conquer_base_areas(self.defender, self.attacker)
 					.await;
-				game_write
-					.state
-					.eliminated_players
-					.push(self.defender);
+				game_write.state.eliminated_players.push(self.defender);
 				game_write
 					.state
 					.players_points
