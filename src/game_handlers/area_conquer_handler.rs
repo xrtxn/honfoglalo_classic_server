@@ -112,11 +112,12 @@ impl AreaConquerHandler {
 				.game
 				.recv_command_channel(&active_player)
 				.await
-				.unwrap() {
-					self.new_area_selected(val, active_player).await.unwrap();
-				} else {
-					error!("Invalid command");
-				}
+				.unwrap()
+			{
+				self.new_area_selected(val, active_player).await.unwrap();
+			} else {
+				error!("Invalid command");
+			}
 			trace!("command received");
 		} else {
 			let readgame = self.game.read().await;

@@ -133,9 +133,7 @@ impl Emulator for GameMenuWaithall {
 					closed: Some(true),
 				},
 			],
-			waitstate: WaitState {
-				roomsel: 0,
-			},
+			waitstate: WaitState { roomsel: 0 },
 		}
 	}
 }

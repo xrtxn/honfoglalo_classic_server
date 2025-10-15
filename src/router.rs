@@ -1,5 +1,6 @@
 use axum::{Extension, Json};
 use sqlx::PgPool;
+use tracing::trace;
 
 use crate::app::{
 	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
@@ -26,7 +27,7 @@ use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::start::friendly_game::OpponentType;
 use crate::village::waithall::{GameMenuWaithall, Waithall};
 
-const QUICK_BATTLE_EMU: bool = true;
+const QUICK_BATTLE_EMU: bool = false;
 
 pub async fn help() -> Json<HelpResponse> {
 	// todo find out how to use this
@@ -116,10 +117,6 @@ pub async fn game(
 					Ok(modified_xml_response(&CommandResponse::error())?)
 				}
 				CommandType::GetExternalData(_) => {
-					if player_state.get_current_waithall().await == Waithall::Game {
-						//todo
-					}
-
 					let msg = quick_xml::se::to_string(&ExternalFriendsRoot::emulate())?;
 					Ok(remove_root_tag(format!(
 						"{}\n{}",
@@ -127,9 +124,17 @@ pub async fn game(
 						msg
 					)))
 				}
-				CommandType::ExitCurrentRoom(_) => Ok(modified_xml_response(
-					&CommandResponse::ok(comm.client_id, comm.mn),
-				)?),
+				CommandType::ExitCurrentRoom(_) => {
+					if player_state.get_current_waithall().await == Waithall::Game {
+						let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
+						player_listen_channel.send_message(msg).await.unwrap();
+					}
+
+					Ok(modified_xml_response(&CommandResponse::ok(
+						comm.client_id,
+						comm.mn,
+					))?)
+				}
 				CommandType::CloseGame => {
 					//send back to the menu
 					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
@@ -155,6 +160,7 @@ pub async fn game(
 					room.add_opponent(request_room.opp2);
 
 					//todo move this
+					// if there are 2 players allow the game to progress
 					if matches!(request_room.opp1, Robot)
 						|| matches!(request_room.opp1, Player(_))
 							&& matches!(request_room.opp2, Robot)

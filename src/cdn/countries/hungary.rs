@@ -1,5 +1,5 @@
-use crate::cdn::countries::hungary::flags::HunFlags;
 use crate::cdn::countries::FlagIds::Hungarian;
+use crate::cdn::countries::hungary::flags::HunFlags;
 use crate::cdn::countries::{CountriesData, CountriesResponse};
 use crate::emulator::Emulator;
 

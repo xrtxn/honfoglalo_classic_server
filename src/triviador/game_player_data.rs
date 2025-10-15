@@ -93,8 +93,8 @@ impl GamePlayerData {
 	}
 
 	pub(crate) fn is_bot(&self) -> bool {
-        self.id == -1
-    }
+		self.id == -1
+	}
 }
 
 // Emulates a Player

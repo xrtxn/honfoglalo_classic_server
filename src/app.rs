@@ -137,7 +137,8 @@ impl App {
 			.layer(Extension(user_state.clone()))
 			.layer(Extension(friendly_rooms))
 			.layer(Extension(player_channel))
-			.layer(Extension(server_command_channel));
+			.layer(Extension(server_command_channel))
+			.layer(Extension(shared_state));
 
 		let merged = app.merge(game_router);
 

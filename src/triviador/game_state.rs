@@ -8,7 +8,7 @@ pub(crate) struct GameState {
 }
 
 impl GameState {
-	pub(crate)  fn loading_screen() -> GameState {
+	pub(crate) fn loading_screen() -> GameState {
 		GameState {
 			state: 11,
 			round: 0,

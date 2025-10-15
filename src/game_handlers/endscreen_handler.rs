@@ -1,6 +1,5 @@
 use serde::Serialize;
 use tokio_stream::StreamExt;
-use tracing::trace;
 
 use crate::{
 	emulator::Emulator,

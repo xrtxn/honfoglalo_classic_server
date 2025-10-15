@@ -1,5 +1,5 @@
-use rand::prelude::{IteratorRandom, StdRng};
 use rand::SeedableRng;
+use rand::prelude::{IteratorRandom, StdRng};
 use tracing::{trace, warn};
 
 use crate::triviador::areas::Area;
