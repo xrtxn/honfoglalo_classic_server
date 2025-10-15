@@ -80,7 +80,7 @@ impl<T: Clone> PlayerChannel<T> {
 		self.rx.recv_async().await
 	}
 
-	pub(crate) fn _clear_rx(&self) {
+	pub(crate) fn clear_rx(&self) {
 		let num = self.rx.len();
 		while self.rx.try_recv().is_ok() {
 			trace!("Clearing message from channel: {}", num);

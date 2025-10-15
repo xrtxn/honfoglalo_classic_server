@@ -75,5 +75,9 @@ impl ServerGameHandler {
 		}
 		server_game.handle_all().await;
 		info!("Game ended");
+
+		// tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+		player_channel.clear_rx();
+		command_channel.clear_rx();
 	}
 }

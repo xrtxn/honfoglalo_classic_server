@@ -1,5 +1,6 @@
 use serde::Serialize;
 use tokio_stream::StreamExt;
+use tracing::trace;
 
 use crate::{
 	emulator::Emulator,
@@ -39,6 +40,7 @@ impl EndScreenHandler {
 				.await
 				.unwrap();
 		}
+		self.game.wait_for_all_active().await;
 	}
 }
 

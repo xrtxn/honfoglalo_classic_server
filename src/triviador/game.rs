@@ -110,6 +110,7 @@ impl SharedTrivGame {
 		}
 	}
 
+	/// Waits for all active players with 10s timeout
 	pub(crate) async fn wait_for_all_active(&self) {
 		let utils = self.read().await.utils.clone();
 		let iter = utils.active_players_stream();
