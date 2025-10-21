@@ -1,6 +1,6 @@
 use axum::{Extension, Json};
 use sqlx::PgPool;
-use tracing::trace;
+use tracing::{trace, warn};
 
 use crate::app::{
 	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
@@ -146,36 +146,25 @@ pub async fn game(
 				}
 				// This gets called after clicking on the button add players to the friendly room
 				CommandType::AddFriendlyRoom(request_room) => {
-					use OpponentType::*;
+					trace!("{:?}", request_room);
 
-					let room_number = friendly_rooms.len() as u16;
+					let room_number = friendly_rooms.0.get_next_available() as u16;
 
 					friendly_rooms
-						.insert(room_number, ActiveSepRoom::new(PLAYER_ID, PLAYER_NAME))
+						.insert_async(room_number, ActiveSepRoom::new(PLAYER_ID, PLAYER_NAME))
+						.await
 						.unwrap();
 
-					let mut room = friendly_rooms.get(&room_number).unwrap();
+					let mut room = friendly_rooms.0.get_async(&room_number).await.unwrap();
 
-					room.add_opponent(request_room.opp1);
-					room.add_opponent(request_room.opp2);
+					room.add_opponent(request_room.opp1, request_room.name1);
+					room.add_opponent(request_room.opp2, request_room.name2);
 
-					//todo move this
-					// if there are 2 players allow the game to progress
-					if matches!(request_room.opp1, Robot)
-						|| matches!(request_room.opp1, Player(_))
-							&& matches!(request_room.opp2, Robot)
-					{
-						room.allow_game();
-					}
+					room.code = Some(room_number);
 
-					drop(room);
+					room.check_playable();
 
-					let xml = quick_xml::se::to_string(
-						&friendly_rooms
-							.0
-							.read(&room_number, |_, v| v.clone())
-							.unwrap(),
-					)?;
+					let xml = quick_xml::se::to_string(room.get())?;
 					player_listen_channel.send_message(xml).await.unwrap();
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
@@ -183,15 +172,21 @@ pub async fn game(
 					))?)
 				}
 				CommandType::JoinFriendlyRoom(room) => {
-					if room.code.is_some() {
-						let xml = quick_xml::se::to_string(
-							&friendly_rooms
-								.0
-								.read(&room.code.unwrap(), |_, v| v.clone())
-								.unwrap(),
-						)?;
-						player_listen_channel.send_message(xml).await.unwrap();
+					if let Some(code) = room.code {
+						if let Some(mut active_room) =
+							friendly_rooms.0.clone().get_async(&code).await
+						{
+							active_room
+								.get_mut()
+								.add_opponent(OpponentType::Player(1), Some("xrtxn2".to_string()));
+							let xml = quick_xml::se::to_string(&active_room.get())?;
+							player_listen_channel.send_message(xml).await.unwrap();
+						} else {
+							warn!("Friendly room {} doesn't exist", code);
+							return Ok(modified_xml_response(&CommandResponse::error())?);
+						}
 					} else {
+						warn!("Provided code must be some");
 						return Ok(modified_xml_response(&CommandResponse::error())?);
 					}
 					Ok(modified_xml_response(&CommandResponse::ok(

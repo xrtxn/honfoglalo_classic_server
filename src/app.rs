@@ -1,3 +1,4 @@
+use std::hash::RandomState;
 use std::sync::Arc;
 
 use axum::body::Body;
@@ -8,7 +9,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Router, middleware};
 use http_body_util::BodyExt;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use scc::HashMap;
+use scc::hash_map::OccupiedEntry;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
 use tracing::trace;
@@ -19,7 +23,44 @@ use crate::users::ServerCommand;
 use crate::village::start::friendly_game::{ActiveSepRoom, OpponentType};
 use crate::village::waithall::Waithall;
 
-pub type FriendlyRooms = HashMap<u16, ActiveSepRoom>;
+#[derive(Clone)]
+pub struct FriendlyRooms(pub std::sync::Arc<HashMap<u16, ActiveSepRoom>>);
+
+impl FriendlyRooms {
+	pub fn new() -> Self {
+		FriendlyRooms(std::sync::Arc::new(HashMap::new()))
+	}
+
+	pub async fn insert_async(
+		&self,
+		key: u16,
+		value: ActiveSepRoom,
+	) -> Result<(), (u16, ActiveSepRoom)> {
+		self.0.insert_async(key, value).await
+	}
+
+	pub async fn push_room_async(&self, room: ActiveSepRoom, coded: bool) {}
+
+	// todo check this out as this has weird behavior
+	pub async fn get_async(
+		&self,
+		key: &u16,
+	) -> Option<OccupiedEntry<'_, u16, ActiveSepRoom, RandomState>> {
+		self.0.get_async(key).await
+	}
+
+	pub async fn remove_async(&self, key: &u16) -> Option<ActiveSepRoom> {
+		self.0.remove_async(key).await.map(|(_, v)| v)
+	}
+
+	pub fn get_next_available(&self) -> usize {
+		let mut rng = StdRng::from_entropy();
+		let num = rng.gen_range(1000..=9999);
+		trace!("Generated friendly room code: {}", num);
+		num
+	}
+}
+
 pub type SharedState = HashMap<i32, SharedPlayerState>;
 
 #[derive(Debug)]
@@ -109,15 +150,15 @@ impl App {
 
 		let friendly_rooms: FriendlyRooms = FriendlyRooms::new();
 		let shared_state: SharedState = HashMap::new();
-		let val = SharedPlayerState::new();
+		let player_state = SharedPlayerState::new();
 		let player_channel: XmlPlayerChannel = PlayerChannel::new();
 		let server_command_channel: ServerCommandChannel = ServerCommandChannel::new();
 
 		let mut test_room = ActiveSepRoom::new(OpponentType::Player(2), "Tesztelek");
-		test_room.add_opponent(OpponentType::Anyone);
-		test_room.add_opponent(OpponentType::Robot);
-		friendly_rooms.insert(0000, test_room).unwrap();
-		shared_state.insert(USER_ID, val).unwrap();
+		test_room.add_opponent(OpponentType::Code, None);
+		test_room.add_opponent(OpponentType::Robot, None);
+		friendly_rooms.insert_async(1111, test_room).await.unwrap();
+		shared_state.insert(USER_ID, player_state).unwrap();
 
 		let app = Router::new()
 			.route("/mobil.php", post(mobil))
@@ -137,8 +178,7 @@ impl App {
 			.layer(Extension(user_state.clone()))
 			.layer(Extension(friendly_rooms))
 			.layer(Extension(player_channel))
-			.layer(Extension(server_command_channel))
-			.layer(Extension(shared_state));
+			.layer(Extension(server_command_channel));
 
 		let merged = app.merge(game_router);
 

@@ -49,6 +49,7 @@ pub mod response {
 	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
 	pub struct LoginResult {
+		// todo fix warning and error is not diplayed properly in swf
 		pub warning: Option<Warning>,
 		pub error: Option<LoginError>,
 		pub userid: String,

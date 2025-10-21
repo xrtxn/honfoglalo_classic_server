@@ -6,7 +6,7 @@ use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_aux::prelude::deserialize_number_from_string;
 use serde_with::skip_serializing_none;
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::emulator::Emulator;
 
@@ -109,7 +109,7 @@ impl Emulator for FriendlyListRooms {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct EnterFriendlyRoom {
+pub struct ReqFriendlyRoom {
 	// max 9999
 	#[serde(rename = "@CODE")]
 	pub code: Option<u16>,
@@ -128,17 +128,17 @@ pub struct ActiveSepRoom {
 	#[serde(rename = "@CODE")]
 	pub code: Option<u16>,
 	#[serde(rename = "@P1")]
-	pub player1_id: OpponentType,
+	pub player1: OpponentType,
 	pub player1_ready: bool,
 	#[serde(rename = "@PN1")]
 	pub player1_name: String,
 	#[serde(rename = "@P2")]
-	pub player2_id: Option<OpponentType>,
+	pub player2: Option<OpponentType>,
 	pub player2_ready: bool,
 	#[serde(rename = "@PN2")]
 	pub player2_name: Option<String>,
 	#[serde(rename = "@P3")]
-	pub player3_id: Option<OpponentType>,
+	pub player3: Option<OpponentType>,
 	pub player3_ready: bool,
 	#[serde(rename = "@PN3")]
 	pub player3_name: Option<String>,
@@ -150,39 +150,58 @@ impl ActiveSepRoom {
 	pub(crate) fn new(player1_id: OpponentType, player1_name: &str) -> Self {
 		ActiveSepRoom {
 			code: None,
-			player1_id,
+			player1: player1_id,
 			player1_ready: false,
 			player1_name: player1_name.to_string(),
-			player2_id: None,
+			player2: None,
 			player2_ready: false,
 			player2_name: None,
-			player3_id: None,
+			player3: None,
 			player3_ready: false,
 			player3_name: None,
 			can_start: false,
 		}
 	}
-	pub(crate) fn add_opponent(&mut self, opponent_type: OpponentType) {
-		let is_ready = matches!(opponent_type, OpponentType::Robot);
-		if opponent_type == OpponentType::Code && self.code.is_none() {
-			let mut rng = StdRng::from_entropy();
-			self.code = Some(rng.gen_range(1000..=9999));
-		}
 
-		if self.player2_id.is_none() {
-			self.player2_id = Some(opponent_type);
+	// todo this currently accounts for code additions
+	pub(crate) fn add_opponent(&mut self, opponent_type: OpponentType, name: Option<String>) {
+		let is_ready = matches!(opponent_type, OpponentType::Robot);
+		if self.player2.is_none()
+			|| self
+				.player2
+				.as_ref()
+				.map_or(true, |p| *p == OpponentType::Code)
+		{
+			self.player2 = Some(opponent_type);
 			self.player2_ready = is_ready;
-			self.player2_name = None;
-		} else if self.player3_id.is_none() {
-			self.player3_id = Some(opponent_type);
+			self.player2_name = name;
+		} else if self.player3.is_none()
+			|| self
+				.player3
+				.as_ref()
+				.map_or(true, |p| *p == OpponentType::Code)
+		{
+			self.player3 = Some(opponent_type);
 			self.player3_ready = is_ready;
-			self.player3_name = None;
+			self.player3_name = name;
 		} else {
 			error!("There are three players already in this room! {:?}", self);
 		}
 	}
 
-	pub(crate) fn allow_game(&mut self) {
+	pub(crate) fn check_playable(&mut self) {
+		if (matches!(self.player1, OpponentType::Robot)
+			|| matches!(self.player1, OpponentType::Player(_)))
+			&& (matches!(self.player2, Some(OpponentType::Robot))
+				|| matches!(self.player2, Some(OpponentType::Player(_))))
+			&& (matches!(self.player3, Some(OpponentType::Robot))
+				|| matches!(self.player3, Some(OpponentType::Player(_))))
+		{
+			self.allow_game();
+		}
+	}
+
+	fn allow_game(&mut self) {
 		self.can_start = true
 	}
 }
@@ -200,11 +219,11 @@ impl Serialize for ActiveSepRoom {
 
 		state.serialize_field(
 			"@P1",
-			&format!("{},{}", self.player1_id.get_id(), self.player1_ready as u8),
+			&format!("{},{}", self.player1.get_id(), self.player1_ready as u8),
 		)?;
 		state.serialize_field("@PN1", &self.player1_name)?;
 
-		if let Some(player2_id) = &self.player2_id {
+		if let Some(player2_id) = &self.player2 {
 			state.serialize_field(
 				"@P2",
 				&format!("{},{}", player2_id.get_id(), self.player2_ready as u8),
@@ -213,7 +232,7 @@ impl Serialize for ActiveSepRoom {
 		if let Some(name) = &self.player2_name {
 			state.serialize_field("@PN2", name)?;
 		}
-		if let Some(player3_id) = &self.player3_id {
+		if let Some(player3_id) = &self.player3 {
 			state.serialize_field(
 				"@P3",
 				&format!("{},{}", player3_id.get_id(), self.player3_ready as u8),
@@ -234,13 +253,13 @@ impl Serialize for ActiveSepRoom {
 fn friendly_test() {
 	let room = ActiveSepRoom {
 		code: None,
-		player1_id: OpponentType::Player(1),
+		player1: OpponentType::Player(1),
 		player1_ready: false,
 		player1_name: "xrtxn".to_string(),
-		player2_id: Some(OpponentType::Robot),
+		player2: Some(OpponentType::Robot),
 		player2_ready: false,
 		player2_name: None,
-		player3_id: Some(OpponentType::Robot),
+		player3: Some(OpponentType::Robot),
 		player3_ready: false,
 		player3_name: None,
 		can_start: false,
