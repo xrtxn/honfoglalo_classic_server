@@ -178,7 +178,7 @@ pub async fn game(
 						{
 							active_room
 								.get_mut()
-								.add_opponent(OpponentType::Player(1), Some("xrtxn2".to_string()));
+								.add_opponent(OpponentType::Player(1), Some("xrtxn".to_string()));
 							let xml = quick_xml::se::to_string(&active_room.get())?;
 							player_listen_channel.send_message(xml).await.unwrap();
 						} else {

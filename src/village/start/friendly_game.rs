@@ -163,30 +163,29 @@ impl ActiveSepRoom {
 		}
 	}
 
-	// todo this currently accounts for code additions
 	pub(crate) fn add_opponent(&mut self, opponent_type: OpponentType, name: Option<String>) {
 		let is_ready = matches!(opponent_type, OpponentType::Robot);
-		if self.player2.is_none()
-			|| self
-				.player2
-				.as_ref()
-				.map_or(true, |p| *p == OpponentType::Code)
-		{
+		let can_replace_code = matches!(opponent_type, OpponentType::Player(_));
+		if self.can_add_opponent_to_slot(&self.player2, can_replace_code) {
 			self.player2 = Some(opponent_type);
 			self.player2_ready = is_ready;
 			self.player2_name = name;
-		} else if self.player3.is_none()
-			|| self
-				.player3
-				.as_ref()
-				.map_or(true, |p| *p == OpponentType::Code)
-		{
+		} else if self.can_add_opponent_to_slot(&self.player3, can_replace_code) {
 			self.player3 = Some(opponent_type);
 			self.player3_ready = is_ready;
 			self.player3_name = name;
 		} else {
 			error!("There are three players already in this room! {:?}", self);
 		}
+	}
+
+	fn can_add_opponent_to_slot(
+		&self,
+		slot: &Option<OpponentType>,
+		can_replace_code: bool,
+	) -> bool {
+		slot.is_none()
+			|| (can_replace_code && slot.as_ref().map_or(false, |p| *p == OpponentType::Code))
 	}
 
 	pub(crate) fn check_playable(&mut self) {

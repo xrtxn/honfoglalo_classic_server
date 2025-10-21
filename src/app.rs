@@ -39,8 +39,6 @@ impl FriendlyRooms {
 		self.0.insert_async(key, value).await
 	}
 
-	pub async fn push_room_async(&self, room: ActiveSepRoom, coded: bool) {}
-
 	// todo check this out as this has weird behavior
 	pub async fn get_async(
 		&self,
