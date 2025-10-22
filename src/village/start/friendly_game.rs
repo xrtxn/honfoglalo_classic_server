@@ -1,12 +1,10 @@
 use std::str::FromStr;
 
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_aux::prelude::deserialize_number_from_string;
 use serde_with::skip_serializing_none;
-use tracing::{error, trace};
+use tracing::error;
 
 use crate::emulator::Emulator;
 
@@ -15,8 +13,8 @@ pub struct ExitCurrentRoom {}
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub(crate) enum OpponentType {
-	// i8 num
-	Player(i8),
+	// i16 num
+	Player(i16),
 	// 0
 	Anyone,
 	// -1
@@ -26,7 +24,7 @@ pub(crate) enum OpponentType {
 }
 
 impl OpponentType {
-	pub(crate) fn get_id(&self) -> i8 {
+	pub(crate) fn get_id(&self) -> i16 {
 		match self {
 			OpponentType::Player(id) => *id,
 			OpponentType::Anyone => 0,
@@ -44,7 +42,7 @@ impl FromStr for OpponentType {
 			"0" => Ok(OpponentType::Anyone),
 			"-1" => Ok(OpponentType::Robot),
 			"-2" => Ok(OpponentType::Code),
-			_ => Ok(OpponentType::Player(i8::from_str(s)?)),
+			_ => Ok(OpponentType::Player(i16::from_str(s)?)),
 		}
 	}
 }
@@ -163,19 +161,28 @@ impl ActiveSepRoom {
 		}
 	}
 
-	pub(crate) fn add_opponent(&mut self, opponent_type: OpponentType, name: Option<String>) {
+	pub(crate) fn add_opponent(
+		&mut self,
+		opponent_type: OpponentType,
+		name: Option<String>,
+	) -> anyhow::Result<()> {
 		let is_ready = matches!(opponent_type, OpponentType::Robot);
 		let can_replace_code = matches!(opponent_type, OpponentType::Player(_));
 		if self.can_add_opponent_to_slot(&self.player2, can_replace_code) {
 			self.player2 = Some(opponent_type);
 			self.player2_ready = is_ready;
 			self.player2_name = name;
+			Ok(())
 		} else if self.can_add_opponent_to_slot(&self.player3, can_replace_code) {
 			self.player3 = Some(opponent_type);
 			self.player3_ready = is_ready;
 			self.player3_name = name;
+			Ok(())
 		} else {
 			error!("There are three players already in this room! {:?}", self);
+			Err(anyhow::anyhow!(
+				"There are three players already in this room!"
+			))
 		}
 	}
 

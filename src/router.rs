@@ -1,4 +1,6 @@
 use axum::{Extension, Json};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use sqlx::PgPool;
 use tracing::{trace, warn};
 
@@ -66,8 +68,6 @@ pub async fn game(
 ) -> Result<String, AppError> {
 	//todo fetch this from db
 	const GAME_ID: u32 = 1;
-	const PLAYER_ID: OpponentType = OpponentType::Player(1);
-	const PLAYER_NAME: &str = "xrtxn";
 
 	let body = format!("<ROOT>{}</ROOT>", body);
 	match xml_header.0 {
@@ -93,9 +93,12 @@ pub async fn game(
 							.await;
 						});
 					}
+					let mut rng = StdRng::from_entropy();
+					let num = rng.gen_range(1000..=9999);
+					player_state.set_player_id(num).await;
 					Ok(modified_xml_response(&CommandResponse::ok(
-						PLAYER_ID.get_id(),
-						comm.mn,
+						// this is where the players client id is assigned
+						num, comm.mn,
 					))?)
 				}
 				CommandType::ChangeWaitHall(chw) => {
@@ -151,14 +154,22 @@ pub async fn game(
 					let room_number = friendly_rooms.0.get_next_available() as u16;
 
 					friendly_rooms
-						.insert_async(room_number, ActiveSepRoom::new(PLAYER_ID, PLAYER_NAME))
+						.insert_async(
+							room_number,
+							ActiveSepRoom::new(
+								OpponentType::Player(player_state.0.get_player_id().await),
+								&player_state.0.get_player_name(),
+							),
+						)
 						.await
 						.unwrap();
 
 					let mut room = friendly_rooms.0.get_async(&room_number).await.unwrap();
 
-					room.add_opponent(request_room.opp1, request_room.name1);
-					room.add_opponent(request_room.opp2, request_room.name2);
+					room.add_opponent(request_room.opp1, request_room.name1)
+						.unwrap();
+					room.add_opponent(request_room.opp2, request_room.name2)
+						.unwrap();
 
 					room.code = Some(room_number);
 
@@ -176,11 +187,19 @@ pub async fn game(
 						if let Some(mut active_room) =
 							friendly_rooms.0.clone().get_async(&code).await
 						{
-							active_room
+							if active_room
 								.get_mut()
-								.add_opponent(OpponentType::Player(1), Some("xrtxn".to_string()));
-							let xml = quick_xml::se::to_string(&active_room.get())?;
-							player_listen_channel.send_message(xml).await.unwrap();
+								.add_opponent(
+									OpponentType::Player(player_state.get_player_id().await),
+									Some(player_state.get_player_name()),
+								)
+								.is_ok()
+							{
+								let xml = quick_xml::se::to_string(&active_room.get())?;
+								player_listen_channel.send_message(xml).await.unwrap();
+							} else {
+								return Ok(modified_xml_response(&CommandResponse::error())?);
+							}
 						} else {
 							warn!("Friendly room {} doesn't exist", code);
 							return Ok(modified_xml_response(&CommandResponse::error())?);

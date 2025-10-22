@@ -47,6 +47,7 @@ impl FriendlyRooms {
 		self.0.get_async(key).await
 	}
 
+	#[allow(dead_code)]
 	pub async fn remove_async(&self, key: &u16) -> Option<ActiveSepRoom> {
 		self.0.remove_async(key).await.map(|(_, v)| v)
 	}
@@ -63,9 +64,11 @@ pub type SharedState = HashMap<i32, SharedPlayerState>;
 
 #[derive(Debug)]
 struct PlayerState {
-	pub is_logged_in: RwLock<bool>,
-	pub is_listen_ready: RwLock<bool>,
-	pub current_waithall: RwLock<Waithall>,
+	is_logged_in: RwLock<bool>,
+	is_listen_ready: RwLock<bool>,
+	current_waithall: RwLock<Waithall>,
+	player_id: RwLock<i16>,
+	player_name: String,
 }
 
 #[derive(Clone, Debug)]
@@ -77,6 +80,8 @@ impl SharedPlayerState {
 			is_logged_in: RwLock::new(false),
 			is_listen_ready: RwLock::new(false),
 			current_waithall: RwLock::new(Waithall::Village),
+			player_id: RwLock::new(0),
+			player_name: "Anonymous".to_string(),
 		};
 		SharedPlayerState(Arc::new(val))
 	}
@@ -96,6 +101,15 @@ impl SharedPlayerState {
 	}
 	pub async fn set_current_waithall(&self, waithall: Waithall) {
 		*self.0.current_waithall.write().await = waithall;
+	}
+	pub async fn get_player_id(&self) -> i16 {
+		*self.0.player_id.read().await
+	}
+	pub async fn set_player_id(&self, player_id: i16) {
+		*self.0.player_id.write().await = player_id;
+	}
+	pub fn get_player_name(&self) -> String {
+		self.0.player_name.clone()
 	}
 }
 
@@ -143,40 +157,39 @@ impl App {
 	}
 
 	pub async fn serve(self) -> Result<(), AppError> {
-		// todo use a middleware instead
-		const USER_ID: i32 = 1;
+		let session_store = tower_sessions::MemoryStore::default();
+		let session_layer =
+			tower_sessions::SessionManagerLayer::new(session_store).with_secure(false);
 
+		trace!("Starting server on port 8080");
 		let friendly_rooms: FriendlyRooms = FriendlyRooms::new();
-		let shared_state: SharedState = HashMap::new();
 		let player_state = SharedPlayerState::new();
+		// todo fix one channel for everyone
 		let player_channel: XmlPlayerChannel = PlayerChannel::new();
 		let server_command_channel: ServerCommandChannel = ServerCommandChannel::new();
 
 		let mut test_room = ActiveSepRoom::new(OpponentType::Player(2), "Tesztelek");
-		test_room.add_opponent(OpponentType::Code, None);
-		test_room.add_opponent(OpponentType::Robot, None);
-		friendly_rooms.insert_async(1111, test_room).await.unwrap();
-		shared_state.insert(USER_ID, player_state).unwrap();
+		test_room.add_opponent(OpponentType::Robot, None).unwrap();
+		test_room.add_opponent(OpponentType::Robot, None).unwrap();
+		friendly_rooms.insert_async(0000, test_room).await.unwrap();
 
 		let app = Router::new()
 			.route("/mobil.php", post(mobil))
 			.route("/dat/help.json", get(help))
 			.route("/client_countries.php", get(countries))
 			.route("/client_friends.php", post(friends))
-			.route("/client_castle.php", get(client_castle))
-			// .route("/client_extdata.php", get(extdata))
-			.layer(Extension(self.db.clone()));
-
-		let user_state = shared_state.get(&USER_ID).unwrap().get().clone();
+			.route("/client_castle.php", get(client_castle));
+		// .route("/client_extdata.php", get(extdata));
 
 		let game_router = Router::new()
 			.route("/game", post(game))
 			.route_layer(middleware::from_fn(xml_header_extractor))
 			.layer(Extension(self.db.clone()))
-			.layer(Extension(user_state.clone()))
+			.layer(Extension(player_state))
 			.layer(Extension(friendly_rooms))
 			.layer(Extension(player_channel))
-			.layer(Extension(server_command_channel));
+			.layer(Extension(server_command_channel))
+			.layer(session_layer);
 
 		let merged = app.merge(game_router);
 
