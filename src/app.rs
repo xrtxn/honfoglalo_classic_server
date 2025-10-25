@@ -15,12 +15,13 @@ use scc::HashMap;
 use scc::hash_map::OccupiedEntry;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
-use tracing::trace;
+use tracing::{error, trace, warn};
 
-use crate::channels::parse_xml_multiple;
+use crate::channels::command::request::CommandRoot;
+use crate::channels::{BodyChannelType, parse_xml_multiple};
 use crate::router::{client_castle, countries, friends, game, help, mobil};
 use crate::users::ServerCommand;
-use crate::village::start::friendly_game::{ActiveSepRoom, OpponentType};
+use crate::village::start::friendly_game::ActiveSepRoom;
 use crate::village::waithall::Waithall;
 
 #[derive(Clone)]
@@ -60,56 +61,60 @@ impl FriendlyRooms {
 	}
 }
 
-pub type SharedState = HashMap<i32, SharedPlayerState>;
+pub type SharedState = Arc<HashMap<i32, SharedPlayerState>>;
 
 #[derive(Debug)]
-struct PlayerState {
-	is_logged_in: RwLock<bool>,
-	is_listen_ready: RwLock<bool>,
-	current_waithall: RwLock<Waithall>,
-	player_id: RwLock<i16>,
+pub(crate) struct PlayerState {
+	pub session_id: i32,
+	is_logged_in: bool,
+	is_listen_ready: bool,
+	current_waithall: Waithall,
+	player_id: i32,
 	player_name: String,
+	command_channel: ServerCommandChannel,
+	listen_channel: XmlPlayerChannel,
 }
 
 #[derive(Clone, Debug)]
-pub struct SharedPlayerState(Arc<PlayerState>);
+pub struct SharedPlayerState(pub Arc<RwLock<PlayerState>>);
 
 impl SharedPlayerState {
 	fn new() -> Self {
+		let mut rand = StdRng::from_entropy();
 		let val = PlayerState {
-			is_logged_in: RwLock::new(false),
-			is_listen_ready: RwLock::new(false),
-			current_waithall: RwLock::new(Waithall::Village),
-			player_id: RwLock::new(0),
+			session_id: rand.gen_range(0..10000),
+			is_logged_in: false,
+			is_listen_ready: false,
+			current_waithall: Waithall::Offline,
+			player_id: 0,
 			player_name: "Anonymous".to_string(),
+			command_channel: ServerCommandChannel::new(),
+			listen_channel: XmlPlayerChannel::new(),
 		};
-		SharedPlayerState(Arc::new(val))
+		SharedPlayerState(Arc::new(RwLock::new(val)))
 	}
 
 	#[allow(dead_code)]
 	pub async fn get_listen_ready(&self) -> bool {
-		*self.0.is_listen_ready.read().await
+		self.0.read().await.is_listen_ready
 	}
 	pub async fn set_login(&self, val: bool) {
-		*self.0.is_logged_in.write().await = val;
+		self.0.write().await.is_logged_in = val;
 	}
 	pub async fn set_listen_ready(&self, val: bool) {
-		*self.0.is_listen_ready.write().await = val;
+		self.0.write().await.is_listen_ready = val;
 	}
 	pub async fn get_current_waithall(&self) -> Waithall {
-		*self.0.current_waithall.read().await
+		self.0.read().await.current_waithall.clone()
 	}
 	pub async fn set_current_waithall(&self, waithall: Waithall) {
-		*self.0.current_waithall.write().await = waithall;
+		self.0.write().await.current_waithall = waithall;
 	}
-	pub async fn get_player_id(&self) -> i16 {
-		*self.0.player_id.read().await
+	pub async fn get_player_id(&self) -> i32 {
+		self.0.read().await.player_id
 	}
-	pub async fn set_player_id(&self, player_id: i16) {
-		*self.0.player_id.write().await = player_id;
-	}
-	pub fn get_player_name(&self) -> String {
-		self.0.player_name.clone()
+	pub async fn get_player_name(&self) -> String {
+		self.0.read().await.player_name.clone()
 	}
 }
 
@@ -157,39 +162,29 @@ impl App {
 	}
 
 	pub async fn serve(self) -> Result<(), AppError> {
-		let session_store = tower_sessions::MemoryStore::default();
-		let session_layer =
-			tower_sessions::SessionManagerLayer::new(session_store).with_secure(false);
-
 		trace!("Starting server on port 8080");
 		let friendly_rooms: FriendlyRooms = FriendlyRooms::new();
-		let player_state = SharedPlayerState::new();
-		// todo fix one channel for everyone
-		let player_channel: XmlPlayerChannel = PlayerChannel::new();
-		let server_command_channel: ServerCommandChannel = ServerCommandChannel::new();
-
-		let mut test_room = ActiveSepRoom::new(OpponentType::Player(2), "Tesztelek");
-		test_room.add_opponent(OpponentType::Robot, None).unwrap();
-		test_room.add_opponent(OpponentType::Robot, None).unwrap();
-		friendly_rooms.insert_async(0000, test_room).await.unwrap();
+		let shared_state: SharedState = Arc::new(HashMap::new());
 
 		let app = Router::new()
 			.route("/mobil.php", post(mobil))
 			.route("/dat/help.json", get(help))
 			.route("/client_countries.php", get(countries))
 			.route("/client_friends.php", post(friends))
-			.route("/client_castle.php", get(client_castle));
+			.route("/client_castle.php", get(client_castle))
+			.layer(Extension(self.db.clone()));
 		// .route("/client_extdata.php", get(extdata));
 
 		let game_router = Router::new()
 			.route("/game", post(game))
+			.route_layer(middleware::from_fn_with_state(
+				shared_state.clone(),
+				set_session_for_player,
+			))
+			.route_layer(middleware::from_fn(auth))
 			.route_layer(middleware::from_fn(xml_header_extractor))
 			.layer(Extension(self.db.clone()))
-			.layer(Extension(player_state))
-			.layer(Extension(friendly_rooms))
-			.layer(Extension(player_channel))
-			.layer(Extension(server_command_channel))
-			.layer(session_layer);
+			.layer(Extension(friendly_rooms));
 
 		let merged = app.merge(game_router);
 
@@ -222,12 +217,105 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 		};
 		let mut req = Request::from_parts(parts, Body::from(new_body.to_string()));
 
-		let parsed_header = parse_xml_multiple(xml_header_string).unwrap();
+		let parsed_header: BodyChannelType = parse_xml_multiple(xml_header_string).unwrap();
 		req.extensions_mut().insert(parsed_header);
 		req
 	};
 
 	next.run(req).await
+}
+
+async fn auth(request: Request, next: Next) -> Response {
+	use crate::channels::NO_CID;
+
+	// get cid from above parsed xml header
+	if let Some(ax) = request
+		.extensions()
+		.clone()
+		.get::<crate::channels::BodyChannelType>()
+	{
+		match ax {
+			crate::channels::BodyChannelType::Command(cmd) => {
+				if cmd.client_id == NO_CID {
+					let new_cid = {
+						let body = request.into_body().collect().await.unwrap().to_bytes();
+						let body_str = String::from_utf8_lossy(&body).to_string();
+						let ser: CommandRoot =
+							quick_xml::de::from_str(&format!("<ROOT>{}</ROOT>", body_str)).unwrap();
+						match ser.msg_type {
+							crate::channels::command::request::CommandType::Login(login) => {
+								if login.name == "a" { 1 } else { 6 }
+							}
+							_ => {
+								error!("Unauthorized command with NO_CID: {:?}", cmd);
+								return StatusCode::UNAUTHORIZED.into_response();
+							}
+						}
+					};
+
+					let resp = crate::utils::modified_xml_response(
+						&crate::channels::command::response::CommandResponse::ok(new_cid, cmd.mn),
+					)
+					.unwrap();
+					resp.into_response()
+				} else {
+					next.run(request).await
+				}
+			}
+			_ => next.run(request).await,
+		}
+	} else {
+		warn!("BodyChannelType is none!");
+		StatusCode::UNAUTHORIZED.into_response()
+	}
+}
+
+async fn set_session_for_player(
+	axum::extract::State(state): axum::extract::State<SharedState>,
+	mut request: Request,
+	next: Next,
+) -> Response {
+	trace!(
+		"Request reached set_session_for_player middleware {:?}",
+		request.uri()
+	);
+	// get cid from above parsed xml header
+	let cid = if let Some(ax) = request
+		.extensions()
+		.clone()
+		.get::<crate::channels::BodyChannelType>()
+	{
+		match ax {
+			crate::channels::BodyChannelType::Command(cmd) => cmd.client_id,
+			crate::channels::BodyChannelType::Listen(lis) => lis.client_id,
+			crate::channels::BodyChannelType::HeartBeat(hb) => hb.client_id,
+		}
+	} else {
+		warn!("No cid found for hashmap!");
+		-128
+	};
+
+	let player_state = {
+		let pstate = state
+			.entry_async(cid)
+			.await
+			.or_insert_with(SharedPlayerState::new);
+
+		pstate.get().clone()
+	};
+
+	player_state.0.write().await.player_id = cid;
+
+	request
+		.extensions_mut()
+		.insert(player_state.0.read().await.listen_channel.clone());
+	request
+		.extensions_mut()
+		.insert(player_state.0.read().await.command_channel.clone());
+	// set session for player based on cid
+	request.extensions_mut().insert(player_state.clone());
+
+	next.run(request).await
 }
 
 #[derive(Debug)]

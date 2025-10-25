@@ -14,7 +14,7 @@ pub struct ExitCurrentRoom {}
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub(crate) enum OpponentType {
 	// i16 num
-	Player(i16),
+	Player(i32),
 	// 0
 	Anyone,
 	// -1
@@ -24,7 +24,7 @@ pub(crate) enum OpponentType {
 }
 
 impl OpponentType {
-	pub(crate) fn get_id(&self) -> i16 {
+	pub(crate) fn get_id(&self) -> i32 {
 		match self {
 			OpponentType::Player(id) => *id,
 			OpponentType::Anyone => 0,
@@ -42,7 +42,7 @@ impl FromStr for OpponentType {
 			"0" => Ok(OpponentType::Anyone),
 			"-1" => Ok(OpponentType::Robot),
 			"-2" => Ok(OpponentType::Code),
-			_ => Ok(OpponentType::Player(i16::from_str(s)?)),
+			_ => Ok(OpponentType::Player(i32::from_str(s)?)),
 		}
 	}
 }

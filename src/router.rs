@@ -2,7 +2,7 @@ use axum::{Extension, Json};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use sqlx::PgPool;
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 
 use crate::app::{
 	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
@@ -52,7 +52,9 @@ pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 		Mobile::Ping(_) => Json(MobileResponse::Ping(PingResponse {
 			message: "pong".to_string(),
 		})),
-		Mobile::MobileLogin(_) => Json(MobileResponse::Login(LoginResponse::emulate())),
+		Mobile::MobileLogin(login_req) => Json(MobileResponse::Login(LoginResponse::nopass_login(
+			login_req.username,
+		))),
 	}
 }
 
@@ -66,47 +68,34 @@ pub async fn game(
 	server_command_channel: Extension<ServerCommandChannel>,
 	body: String,
 ) -> Result<String, AppError> {
-	//todo fetch this from db
+	// todo fetch this from db
 	const GAME_ID: u32 = 1;
 
 	let body = format!("<ROOT>{}</ROOT>", body);
 	match xml_header.0 {
 		BodyChannelType::Command(comm) => {
 			let ser: CommandRoot = quick_xml::de::from_str(&body)?;
+			trace!(
+				"Reached game command with cid: state player id: {} cid: {} session id: {}",
+				player_state.0.get_player_id().await,
+				comm.client_id,
+				player_state.0.0.read().await.session_id
+			);
 			match ser.msg_type {
-				CommandType::Login(_) => {
-					// todo validate login
-					player_state.set_login(true).await;
-					player_state.set_listen_ready(false).await;
-					player_listen_channel
-						.send_message(quick_xml::se::to_string(&VillageSetupRoot::emulate())?)
-						.await
-						.unwrap();
-					if QUICK_BATTLE_EMU {
-						tokio::spawn(async move {
-							ServerGameHandler::new_friendly(
-								player_listen_channel.0,
-								server_command_channel.0,
-								GAME_ID,
-								db.0,
-							)
-							.await;
-						});
-					}
-					let mut rng = StdRng::from_entropy();
-					let num = rng.gen_range(1000..=9999);
-					player_state.set_player_id(num).await;
-					Ok(modified_xml_response(&CommandResponse::ok(
-						// this is where the players client id is assigned
-						num, comm.mn,
-					))?)
+				CommandType::Login(login) => {
+					error!(
+						"Received unexpected login command in game route: {:?}",
+						login
+					);
+					Ok(modified_xml_response(&CommandResponse::error())?)
 				}
 				CommandType::ChangeWaitHall(chw) => {
+					trace!("Changing waithall to {:?}", chw.waithall);
 					player_state.set_current_waithall(chw.waithall).await;
 
 					let msg = match chw.waithall {
 						Waithall::Game => quick_xml::se::to_string(&GameMenuWaithall::emulate())?,
-						Waithall::Village => {
+						Waithall::Village | Waithall::Offline => {
 							quick_xml::se::to_string(&VillageSetupRoot::emulate())?
 						}
 					};
@@ -158,7 +147,7 @@ pub async fn game(
 							room_number,
 							ActiveSepRoom::new(
 								OpponentType::Player(player_state.0.get_player_id().await),
-								&player_state.0.get_player_name(),
+								&player_state.0.get_player_name().await,
 							),
 						)
 						.await
@@ -191,7 +180,7 @@ pub async fn game(
 								.get_mut()
 								.add_opponent(
 									OpponentType::Player(player_state.get_player_id().await),
-									Some(player_state.get_player_name()),
+									Some(player_state.get_player_name().await),
 								)
 								.is_ok()
 							{
@@ -272,6 +261,21 @@ pub async fn game(
 		}
 		BodyChannelType::Listen(lis) => {
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
+
+			trace!(
+				"Reached game listen with cid: state player id: {} cid: {} session id: {}",
+				player_state.0.get_player_id().await,
+				lis.client_id,
+				player_state.0.0.read().await.session_id
+			);
+
+			// todo find a better way - move this out of listen
+			if player_state.0.get_current_waithall().await == Waithall::Offline {
+				// setup village
+				let msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?;
+				player_listen_channel.send_message(msg).await.unwrap();
+				player_state.set_current_waithall(Waithall::Village).await;
+			}
 
 			player_state.set_listen_ready(ser.listen.is_ready).await;
 

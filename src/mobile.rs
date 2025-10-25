@@ -72,6 +72,52 @@ pub mod response {
 		pub data: LoginResult,
 	}
 
+	impl LoginResponse {
+		pub(crate) fn nopass_login(username: String) -> LoginResponse {
+			LoginResponse {
+				data: LoginResult {
+					warning: None,
+					error: None,
+					userid: "".to_string(),
+					username,
+					userlastname: None,
+					useremail: "".to_string(),
+					guid: "".to_string(),
+					sign: "".to_string(),
+					time: "".to_string(),
+					stoc: "".to_string(),
+					currency: None,
+					extid: None,
+					server: None,
+					sysconf: None,
+				},
+			}
+		}
+	}
+
+	impl Emulator for LoginResponse {
+		fn emulate() -> Self {
+			LoginResponse {
+				data: LoginResult {
+					warning: None,
+					error: None,
+					userid: "".to_string(),
+					username: "xrtxn".to_string(),
+					userlastname: None,
+					useremail: "".to_string(),
+					guid: "".to_string(),
+					sign: "".to_string(),
+					time: "".to_string(),
+					stoc: "".to_string(),
+					currency: None,
+					extid: None,
+					server: None,
+					sysconf: None,
+				},
+			}
+		}
+	}
+
 	// #[derive(Serialize, Deserialize, Debug)]
 	// pub struct CastleResponse {
 	//     pub error: String,
@@ -118,27 +164,4 @@ pub mod response {
 	//         }
 	//     }
 	// }
-
-	impl Emulator for LoginResponse {
-		fn emulate() -> Self {
-			LoginResponse {
-				data: LoginResult {
-					warning: None,
-					error: None,
-					userid: "".to_string(),
-					username: "xrtxn".to_string(),
-					userlastname: None,
-					useremail: "".to_string(),
-					guid: "".to_string(),
-					sign: "".to_string(),
-					time: "".to_string(),
-					stoc: "".to_string(),
-					currency: None,
-					extid: None,
-					server: None,
-					sysconf: None,
-				},
-			}
-		}
-	}
 }

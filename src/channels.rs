@@ -39,6 +39,8 @@ pub enum ResponseHeaders {
 	Listen(ListenResponseHeader),
 }
 
+pub(crate) const NO_CID: i32 = i32::MIN;
+
 pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 	let mut reader = Reader::from_str(xml);
 	reader.config_mut().trim_text(true);
@@ -63,7 +65,7 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 						match attr.key.as_ref() {
 							b"CID" => {
 								let value = std::str::from_utf8(&attr.value).unwrap();
-								cid = value.parse::<i32>().unwrap_or(0);
+								cid = value.parse::<i32>().unwrap_or(NO_CID);
 							}
 							b"MN" => {
 								let value = std::str::from_utf8(&attr.value).unwrap();

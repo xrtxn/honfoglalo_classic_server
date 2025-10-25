@@ -68,6 +68,8 @@ pub enum Waithall {
 	Game,
 	#[serde(rename = "VILLAGE")]
 	Village,
+	#[serde(skip)]
+	Offline,
 }
 
 impl Emulator for GameMenuWaithall {
