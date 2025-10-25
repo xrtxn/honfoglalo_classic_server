@@ -61,11 +61,10 @@ impl FriendlyRooms {
 	}
 }
 
-pub type SharedState = Arc<HashMap<i32, SharedPlayerState>>;
+type SharedState = Arc<HashMap<i32, SharedPlayerState>>;
 
 #[derive(Debug)]
 pub(crate) struct PlayerState {
-	pub session_id: i32,
 	is_logged_in: bool,
 	is_listen_ready: bool,
 	current_waithall: Waithall,
@@ -80,9 +79,7 @@ pub struct SharedPlayerState(pub Arc<RwLock<PlayerState>>);
 
 impl SharedPlayerState {
 	fn new() -> Self {
-		let mut rand = StdRng::from_entropy();
 		let val = PlayerState {
-			session_id: rand.gen_range(0..10000),
 			is_logged_in: false,
 			is_listen_ready: false,
 			current_waithall: Waithall::Offline,

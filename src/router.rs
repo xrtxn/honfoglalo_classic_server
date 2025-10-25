@@ -1,6 +1,4 @@
 use axum::{Extension, Json};
-use rand::rngs::StdRng;
-use rand::{Rng, SeedableRng};
 use sqlx::PgPool;
 use tracing::{error, trace, warn};
 
@@ -75,12 +73,6 @@ pub async fn game(
 	match xml_header.0 {
 		BodyChannelType::Command(comm) => {
 			let ser: CommandRoot = quick_xml::de::from_str(&body)?;
-			trace!(
-				"Reached game command with cid: state player id: {} cid: {} session id: {}",
-				player_state.0.get_player_id().await,
-				comm.client_id,
-				player_state.0.0.read().await.session_id
-			);
 			match ser.msg_type {
 				CommandType::Login(login) => {
 					error!(
@@ -261,13 +253,6 @@ pub async fn game(
 		}
 		BodyChannelType::Listen(lis) => {
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
-
-			trace!(
-				"Reached game listen with cid: state player id: {} cid: {} session id: {}",
-				player_state.0.get_player_id().await,
-				lis.client_id,
-				player_state.0.0.read().await.session_id
-			);
 
 			// todo find a better way - move this out of listen
 			if player_state.0.get_current_waithall().await == Waithall::Offline {

@@ -84,6 +84,7 @@ pub struct Mydata {
 
 // todo
 #[derive(Serialize, Deserialize, Debug)]
+#[allow(dead_code)]
 struct HelpForge {
 	pub prodtime: i64,
 	pub remainingtime: i64,

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::emulator::Emulator;
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug)]
 pub enum BadgeName {
 	CW1(u8),
@@ -24,6 +25,7 @@ impl fmt::Display for BadgeName {
 	}
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BadgeDetail {}
 
