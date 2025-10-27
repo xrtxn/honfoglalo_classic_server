@@ -73,6 +73,25 @@ pub struct GamePlayerData {
 }
 
 impl GamePlayerData {
+	pub(crate) fn new_player(id: i32) -> GamePlayerData {
+		let mut rng = StdRng::from_entropy();
+		// there could be more types
+		let soldier = rng.gen_range(1..8);
+
+		GamePlayerData {
+			id,
+			xp_points: 14000,
+			xp_level: 15,
+			game_count: 1,
+			game_count_sr: 0,
+			country_id: "hu".to_string(),
+			castle_level: 1,
+			custom_avatar: false,
+			soldier,
+			act_league: 1,
+		}
+	}
+
 	pub fn new_bot() -> GamePlayerData {
 		let mut rng = StdRng::from_entropy();
 		// there could be more types

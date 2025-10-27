@@ -113,7 +113,7 @@ pub fn parse_xml_multiple(xml: &str) -> Result<BodyChannelType, anyhow::Error> {
 								let value = std::str::from_utf8(&attr.value).unwrap();
 								mn = value.parse::<u32>().unwrap();
 							}
-							//optional attribute
+							// optional attribute
 							b"MLP" => {
 								// we don't care about this for now
 							}

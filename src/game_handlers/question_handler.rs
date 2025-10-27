@@ -146,7 +146,7 @@ impl QuestionHandler {
 	}
 
 	async fn send_correct_answer(&self) {
-		//it is unnecessary to send the correct answer number here
+		// it is unnecessary to send the correct answer number here
 		self.game.write().await.state.game_state.phase += 1;
 	}
 
@@ -346,7 +346,7 @@ impl TipHandler {
 		self.tip_info = tip_info.lock().await.clone();
 	}
 
-	//todo cleanup
+	// todo cleanup
 	async fn send_player_answers(&self) -> PlayerName {
 		// todo placeholder
 		let good = self.good.unwrap();

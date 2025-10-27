@@ -71,7 +71,7 @@ impl Area {
 		Ok(None)
 	}
 
-	///Conquer an area from a player
+	/// Conquer an area from a player
 	pub(crate) async fn conquer_area(
 		&mut self,
 		new_owner: PlayerName,
@@ -81,7 +81,7 @@ impl Area {
 		Ok(())
 	}
 
-	///Conquer an area from a player
+	/// Conquer an area from a player
 	pub(crate) async fn conquer_area_from_base(
 		&mut self,
 		new_owner: PlayerName,

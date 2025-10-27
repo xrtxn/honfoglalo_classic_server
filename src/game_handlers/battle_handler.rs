@@ -193,7 +193,7 @@ impl BattleHandler {
 				.clone();
 
 			drop(game_read);
-			//todo unify this
+			// todo unify this
 			self.attacker = active_player;
 			self.defender = attacked.owner;
 			let tower_count = self
@@ -233,7 +233,7 @@ impl BattleHandler {
 	}
 
 	pub(super) async fn question(&mut self) {
-		//todo improve logic of storing battling players
+		// todo improve logic of storing battling players
 		let players = self
 			.game
 			.arc_clone()

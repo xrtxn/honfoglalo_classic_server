@@ -17,6 +17,29 @@ pub struct VillageSetupRoot {
 	pub features: Features,
 }
 
+impl VillageSetupRoot {
+	pub(crate) fn with_name(name: String, id: i32) -> Self {
+		let mut root = VillageSetupRoot::emulate();
+		root.mydata.name = name;
+		root.mydata.id = id.to_string();
+		root
+	}
+}
+
+impl Emulator for VillageSetupRoot {
+	fn emulate() -> Self {
+		VillageSetupRoot {
+			state: State {
+				scr: "VILLAGE".to_string(),
+			},
+			mydata: Mydata::emulate(),
+			question_categories: QuestionCategories::emulate(),
+			features: Features::emulate(),
+			gameparams: vec![GameParams::emulate()],
+		}
+	}
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct State {
 	#[serde(rename = "@SCR")]
@@ -82,9 +105,43 @@ pub struct Mydata {
 	pub lastplaces: String,
 }
 
+impl Emulator for Mydata {
+	fn emulate() -> Self {
+		Mydata {
+        name: "Anonymous".to_string(),
+        id: "1".to_string(),
+        country: "us".to_string(),
+        xppack: "14000, 15, 14000, 18500".to_string(),
+        sex: "0".to_string(),
+        gamecount: "0".to_string(),
+        gamecountsr: "0".to_string(),
+        golds: "3000".to_string(),
+        castlelevel: "1".to_string(),
+        sounds_volume: "3000".to_string(),
+        flags: "32768".to_string(),
+        mtcups: "1,22,33".to_string(),
+        cwins: "1,2,0,1,2,3,0".to_string(),
+        energypack: "100,75,0,300,1,0".to_string(),
+        levelflags: "0".to_string(),
+        missions: "255,255,0".to_string(),
+        fh: "5,3,7,6,0,0,0,0,0,0,0,0".to_string(),
+        hp: "1000,1000,900,1000,800,1000,900,1000,2000,5000,10000,20000".to_string(),
+        soldier: "1".to_string(),
+        smsr: "0,0".to_string(),
+        customavatar: "".to_string(),
+        usecustomavatar: "0".to_string(),
+        extavatar: "".to_string(),
+        mycategory: "0".to_string(),
+        hfs: "1,1,24,32500|0,1,168,86400|0,1,168,30|0,1,168,120000|0,1,168,320000|0,1,168,40000|0,2,168,5|0,1,168,30|0,1,168,30".to_string(),
+        taxdata: "4500,10,3000,600,500".to_string(),
+        lastplaces: "3211230000".to_string(),
+    }
+	}
+}
+
 // todo
-#[derive(Serialize, Deserialize, Debug)]
 #[allow(dead_code)]
+#[derive(Serialize, Deserialize, Debug)]
 struct HelpForge {
 	pub prodtime: i64,
 	pub remainingtime: i64,
@@ -97,10 +154,26 @@ pub struct QuestionCategories {
 	pub categories: String,
 }
 
+impl Emulator for QuestionCategories {
+	fn emulate() -> Self {
+		QuestionCategories {
+            categories: "1^Art|2^Everydays|3^Geography|4^History|5^Literature|6^Science: Mat-Phy.|7^Science: Bio-Chem|8^Sport|9^Entertainment|10^Lifestyle".to_string(),
+        }
+	}
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Features {
 	#[serde(rename = "@ENABLED")]
 	pub enabled: String,
+}
+
+impl Emulator for Features {
+	fn emulate() -> Self {
+		Features {
+			enabled: "LONGRULE,MINITOUR,SEPROOMS".to_string(),
+		}
+	}
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -117,56 +190,14 @@ pub struct GameParams {
 	pub hp: String,
 }
 
-impl Emulator for VillageSetupRoot {
+impl Emulator for GameParams {
 	fn emulate() -> Self {
-		VillageSetupRoot {
-            state: State {
-                scr: "VILLAGE".to_string(),
-            },
-            mydata: Mydata {
-                name: "xrtxn".to_string(),
-                id: "1".to_string(),
-                country: "us".to_string(),
-                xppack: "14000, 15, 14000, 18500".to_string(),
-                sex: "0".to_string(),
-                gamecount: "0".to_string(),
-                gamecountsr: "0".to_string(),
-                golds: "3000".to_string(),
-                castlelevel: "1".to_string(),
-                sounds_volume: "3000".to_string(),
-                flags: "32768".to_string(),
-                mtcups: "1,22,33".to_string(),
-                cwins: "1,2,0,1,2,3,0".to_string(),
-                energypack: "100,75,0,300,1,0".to_string(),
-                levelflags: "0".to_string(),
-                missions: "255,255,0".to_string(),
-                fh: "5,3,7,6,0,0,0,0,0,0,0,0".to_string(),
-                hp: "1000,1000,900,1000,800,1000,900,1000,2000,5000,10000,20000".to_string(),
-                soldier: "1".to_string(),
-                smsr: "0,0".to_string(),
-                customavatar: "".to_string(),
-                usecustomavatar: "0".to_string(),
-                extavatar: "".to_string(),
-                mycategory: "0".to_string(),
-                hfs: "1,1,24,32500|0,1,168,86400|0,1,168,30|0,1,168,120000|0,1,168,320000|0,1,168,40000|0,2,168,5|0,1,168,30|0,1,168,30".to_string(),
-                taxdata: "4500,10,3000,600,500".to_string(),
-                lastplaces: "3211230000".to_string(),
-            },
-            question_categories: QuestionCategories {
-                categories: "1^Art|2^Everydays|3^Geography|4^History|5^Literature|6^Science: Mat-Phy.|7^Science: Bio-Chem|8^Sport|9^Entertainment|10^Lifestyle".to_string(),
-            },
-            features: Features {
-                enabled: "LONGRULE,MINITOUR,SEPROOMS".to_string(),
-            },
-            gameparams: vec![
-                GameParams {
-                    badgebonuses: "3,4,5,6,7,8,9|2,3,4,5,6,7,8|1,2,3,4,5,6,7|1,2,3,4,5,6,7|1,2,3,4,5,6,7|1,2,3,4,5,6,7|4,5,6,7,8,9,10|1,0,0,0,0,0,0".to_string(),
-                    nrg: "15,3".to_string(),
-                    hfug: "1,1,24,0|1,1,24,20000|1,1,24,20000|1,1,24,20000|1,1,24,20000|1,1,24,20000|1,1,24,20000".to_string(),
-                    mp: "1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,20000,2,40000,3,60000|1,50000,2,100000,3,150000|1,100000,2,200000,3,300000|1,200000,2,400000,3,600000|1,500000,2,1000000,3,1500000".to_string(),
-                    hp: "2000,2000,2000,2000,2000,2000,2000,20000,50000,100000,200000,500000".to_string(),
-                }
-            ],
+		GameParams {
+            badgebonuses: "3,4,5,6,7,8,9|2,3,4,5,6,7,8|1,2,3,4,5,6,7|1,2,3,4,5,6,7|1,2,3,4,5,6,7|1,2,3,4,5,6,7|4,5,6,7,8,9,10|1,0,0,0,0,0,0".to_string(),
+            nrg: "15,3".to_string(),
+            hfug: "1,1,24,0|1,1,24,20000|1,1,24,20000|1,1,24,20000|1,1,24,20000|1,1,24,20000|1,1,24,20000".to_string(),
+            mp: "1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,1000,10,9000,100,70000|1,20000,2,40000,3,60000|1,50000,2,100000,3,150000|1,100000,2,200000,3,300000|1,200000,2,400000,3,600000|1,500000,2,1000000,3,1500000".to_string(),
+            hp: "2000,2000,2000,2000,2000,2000,2000,20000,50000,100000,200000,500000".to_string(),
         }
 	}
 }

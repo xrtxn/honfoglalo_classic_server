@@ -7,7 +7,7 @@ pub enum ServerCommand {
 }
 
 impl ServerCommand {
-	//this looks nicer
+	// this looks nicer
 	#[allow(clippy::match_like_matches_macro)]
 	/// Checks if two commands are of the same variant, while ignoring the inner data.
 	pub(crate) fn variant_eq(&self, other: &Self) -> bool {

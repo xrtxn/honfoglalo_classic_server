@@ -7,7 +7,7 @@ use super::game_player_data::PlayerName;
 use super::player_points::PlayerPoints;
 use super::war_order::WarOrder;
 use crate::app::ServerCommandChannel;
-use crate::app::XmlPlayerChannel;
+use crate::app::ListenPlayerChannel;
 use crate::triviador::available_area::AvailableAreas;
 use crate::triviador::bases::Bases;
 use crate::triviador::game_state::GameState;
@@ -62,6 +62,6 @@ pub(crate) struct TriviadorState {
 
 #[derive(Clone, Debug)]
 pub(crate) struct GamePlayerChannels {
-	pub xml_channel: XmlPlayerChannel,
+	pub xml_channel: ListenPlayerChannel,
 	pub command_channel: ServerCommandChannel,
 }

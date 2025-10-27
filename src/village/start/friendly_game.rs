@@ -1,17 +1,19 @@
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize, Serializer};
 use serde_aux::prelude::deserialize_number_from_string;
 use serde_with::skip_serializing_none;
-use tracing::error;
+use tracing::{error, trace};
 
+use crate::app::ListenPlayerChannel;
 use crate::emulator::Emulator;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ExitCurrentRoom {}
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) enum OpponentType {
 	// i16 num
 	Player(i32),
@@ -125,6 +127,7 @@ pub struct StartFriendlyRoom {}
 pub struct ActiveSepRoom {
 	#[serde(rename = "@CODE")]
 	pub code: Option<u16>,
+	// player 1 should be yourself, not the player
 	#[serde(rename = "@P1")]
 	pub player1: OpponentType,
 	pub player1_ready: bool,
@@ -142,6 +145,8 @@ pub struct ActiveSepRoom {
 	pub player3_name: Option<String>,
 	#[serde(rename = "@STARTDELAY")]
 	pub can_start: bool,
+	#[serde(skip)]
+	listen_channel: HashMap<OpponentType, ListenPlayerChannel>,
 }
 
 impl ActiveSepRoom {
@@ -158,6 +163,7 @@ impl ActiveSepRoom {
 			player3_ready: false,
 			player3_name: None,
 			can_start: false,
+			listen_channel: HashMap::new(),
 		}
 	}
 
@@ -167,13 +173,13 @@ impl ActiveSepRoom {
 		name: Option<String>,
 	) -> anyhow::Result<()> {
 		let is_ready = matches!(opponent_type, OpponentType::Robot);
-		let can_replace_code = matches!(opponent_type, OpponentType::Player(_));
-		if self.can_add_opponent_to_slot(&self.player2, can_replace_code) {
+		let is_player = matches!(opponent_type, OpponentType::Player(_));
+		if self.can_add_opponent_to_slot(&self.player2, is_player) {
 			self.player2 = Some(opponent_type);
 			self.player2_ready = is_ready;
 			self.player2_name = name;
 			Ok(())
-		} else if self.can_add_opponent_to_slot(&self.player3, can_replace_code) {
+		} else if self.can_add_opponent_to_slot(&self.player3, is_player) {
 			self.player3 = Some(opponent_type);
 			self.player3_ready = is_ready;
 			self.player3_name = name;
@@ -186,13 +192,8 @@ impl ActiveSepRoom {
 		}
 	}
 
-	fn can_add_opponent_to_slot(
-		&self,
-		slot: &Option<OpponentType>,
-		can_replace_code: bool,
-	) -> bool {
-		slot.is_none()
-			|| (can_replace_code && slot.as_ref().map_or(false, |p| *p == OpponentType::Code))
+	fn can_add_opponent_to_slot(&self, slot: &Option<OpponentType>, is_player: bool) -> bool {
+		slot.is_none() || (is_player && slot.as_ref().map_or(false, |p| *p == OpponentType::Code))
 	}
 
 	pub(crate) fn check_playable(&mut self) {
@@ -209,6 +210,65 @@ impl ActiveSepRoom {
 
 	fn allow_game(&mut self) {
 		self.can_start = true
+	}
+
+	/// This should be used when sending the room to a different player than the owner.
+	/// The client interprets player 1 as themselves. This function creates a new
+	/// room state where the given `player_id` is in the `player1` slot, and other
+	/// players are shifted accordingly.
+	pub(crate) fn switch_places(&self, player_id: OpponentType) -> Self {
+		if self.player1 == player_id {
+			return self.clone();
+		}
+
+		let mut new_room = self.clone();
+
+		if self.player2 == Some(player_id) {
+			// Swap player1 and player2
+			new_room.player1 = self.player2.unwrap();
+			new_room.player1_ready = self.player2_ready;
+			new_room.player1_name = self.player2_name.clone().unwrap_or_default();
+
+			new_room.player2 = Some(self.player1);
+			new_room.player2_ready = self.player1_ready;
+			new_room.player2_name = Some(self.player1_name.clone());
+		} else if self.player3 == Some(player_id) {
+			// Rotate players: P1 -> P2, P2 -> P3, P3 -> P1
+			new_room.player1 = self.player3.unwrap();
+			new_room.player1_ready = self.player3_ready;
+			new_room.player1_name = self.player3_name.clone().unwrap_or_default();
+
+			new_room.player2 = Some(self.player1);
+			new_room.player2_ready = self.player1_ready;
+			new_room.player2_name = Some(self.player1_name.clone());
+
+			new_room.player3 = self.player2;
+			new_room.player3_ready = self.player2_ready;
+			new_room.player3_name = self.player2_name.clone();
+		}
+
+		new_room
+	}
+
+	pub(crate) fn add_listener_player_channel(
+		&mut self,
+		channel: ListenPlayerChannel,
+		player: OpponentType,
+	) {
+		self.listen_channel.insert(player, channel);
+	}
+
+	pub(crate) async fn send_state_to_players(&self) {
+		trace!("Real room: {:?}", self);
+		for (player, channel) in &self.listen_channel {
+			if matches!(player, OpponentType::Player(_)) {
+				trace!("Sending friendly room state to player: {:?}", player);
+				// let ordered_room = self.switch_places(*player);
+				// let xml = quick_xml::se::to_string(&ordered_room).unwrap();
+				let xml = quick_xml::se::to_string(&self).unwrap();
+				channel.send_message(xml).await.unwrap();
+			}
+		}
 	}
 }
 
@@ -269,6 +329,7 @@ fn friendly_test() {
 		player3_ready: false,
 		player3_name: None,
 		can_start: false,
+		listen_channel: HashMap::new(),
 	};
 
 	let serialized = quick_xml::se::to_string(&room).unwrap();

@@ -16,7 +16,7 @@ pub(super) mod question_handler;
 pub(super) mod s_game;
 pub(super) mod server_game_handler;
 
-//todo move this over to game.rs
+// todo move this over to game.rs
 
 /// Waits for the game to be ready for a player by listening for a `Ready` command
 /// Uses read lock with 10s timeout

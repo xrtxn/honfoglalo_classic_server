@@ -8,7 +8,7 @@ pub mod request {
 	use crate::menu::friend_list::external_data::ExtDataRequest;
 	use crate::triviador::question::{PlayerTipResponse, SelfAnswer};
 	use crate::village::start::friendly_game::{
-		AddFriendlyRoom, ReqFriendlyRoom, ExitCurrentRoom, StartFriendlyRoom,
+		AddFriendlyRoom, ExitCurrentRoom, ReqFriendlyRoom, StartFriendlyRoom,
 	};
 	use crate::village::start_game::request::EnterLobbyRequest;
 	use crate::village::waithall::ChangeWHXML;

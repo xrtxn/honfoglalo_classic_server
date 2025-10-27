@@ -3,7 +3,7 @@ use sqlx::PgPool;
 use tracing::{error, trace, warn};
 
 use crate::app::{
-	AppError, FriendlyRooms, ServerCommandChannel, SharedPlayerState, XmlPlayerChannel,
+	AppError, FriendlyRooms, ListenPlayerChannel, ServerCommandChannel, SharedPlayerState,
 };
 use crate::cdn::countries::CountriesResponse;
 use crate::channels::BodyChannelType;
@@ -19,6 +19,7 @@ use crate::menu::friend_list::friends::FriendResponse;
 use crate::menu::help::info_help::HelpResponse;
 use crate::mobile::request::Mobile;
 use crate::mobile::response::{LoginResponse, MobileResponse, PingResponse};
+use crate::triviador::player_info::PlayerInfo;
 use crate::users::ServerCommand;
 use crate::utils::{modified_xml_response, remove_root_tag};
 use crate::village::castle::badges::CastleResponse;
@@ -47,12 +48,16 @@ pub async fn _extdata() -> Json<FriendResponse> {
 
 pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 	match payload {
-		Mobile::Ping(_) => Json(MobileResponse::Ping(PingResponse {
-			message: "pong".to_string(),
-		})),
-		Mobile::MobileLogin(login_req) => Json(MobileResponse::Login(LoginResponse::nopass_login(
-			login_req.username,
-		))),
+		Mobile::Ping(_) => Json(MobileResponse::Ping(PingResponse::pong())),
+		Mobile::MobileLogin(login_req) => {
+			let mut login = LoginResponse::nopass_login(login_req.username.clone());
+			if login_req.username == "felso" {
+				login.data.userid = "1".to_string();
+			} else {
+				login.data.userid = "6".to_string();
+			};
+			Json(MobileResponse::Login(login))
+		}
 	}
 }
 
@@ -60,9 +65,9 @@ pub async fn mobil(Json(payload): Json<Mobile>) -> Json<MobileResponse> {
 pub async fn game(
 	db: Extension<PgPool>,
 	xml_header: Extension<BodyChannelType>,
-	player_state: Extension<SharedPlayerState>,
+	session: Extension<SharedPlayerState>,
 	friendly_rooms: Extension<FriendlyRooms>,
-	player_listen_channel: Extension<XmlPlayerChannel>,
+	player_listen_channel: Extension<ListenPlayerChannel>,
 	server_command_channel: Extension<ServerCommandChannel>,
 	body: String,
 ) -> Result<String, AppError> {
@@ -83,12 +88,15 @@ pub async fn game(
 				}
 				CommandType::ChangeWaitHall(chw) => {
 					trace!("Changing waithall to {:?}", chw.waithall);
-					player_state.set_current_waithall(chw.waithall).await;
+					session.set_current_waithall(chw.waithall).await;
 
 					let msg = match chw.waithall {
 						Waithall::Game => quick_xml::se::to_string(&GameMenuWaithall::emulate())?,
 						Waithall::Village | Waithall::Offline => {
-							quick_xml::se::to_string(&VillageSetupRoot::emulate())?
+							quick_xml::se::to_string(&VillageSetupRoot::with_name(
+								session.get_player_name().await,
+								session.get_player_id().await,
+							))?
 						}
 					};
 					player_listen_channel.send_message(msg).await.unwrap();
@@ -109,7 +117,8 @@ pub async fn game(
 					)))
 				}
 				CommandType::ExitCurrentRoom(_) => {
-					if player_state.get_current_waithall().await == Waithall::Game {
+					// todo remove player from friendly game menu
+					if session.get_current_waithall().await == Waithall::Game {
 						let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
 						player_listen_channel.send_message(msg).await.unwrap();
 					}
@@ -120,7 +129,7 @@ pub async fn game(
 					))?)
 				}
 				CommandType::CloseGame => {
-					//send back to the menu
+					// send back to the menu
 					let msg = quick_xml::se::to_string(&GameMenuWaithall::emulate())?;
 					player_listen_channel.send_message(msg).await.unwrap();
 					Ok(modified_xml_response(&CommandResponse::ok(
@@ -138,8 +147,8 @@ pub async fn game(
 						.insert_async(
 							room_number,
 							ActiveSepRoom::new(
-								OpponentType::Player(player_state.0.get_player_id().await),
-								&player_state.0.get_player_name().await,
+								OpponentType::Player(session.0.get_player_id().await),
+								&session.0.get_player_name().await,
 							),
 						)
 						.await
@@ -147,6 +156,10 @@ pub async fn game(
 
 					let mut room = friendly_rooms.0.get_async(&room_number).await.unwrap();
 
+					room.get_mut().add_listener_player_channel(
+						player_listen_channel.0.clone(),
+						OpponentType::Player(session.0.get_player_id().await),
+					);
 					room.add_opponent(request_room.opp1, request_room.name1)
 						.unwrap();
 					room.add_opponent(request_room.opp2, request_room.name2)
@@ -154,7 +167,12 @@ pub async fn game(
 
 					room.code = Some(room_number);
 
+					room.player1_ready = true;
+
 					room.check_playable();
+
+					let switched_room = room.get().clone();
+					switched_room.send_state_to_players().await;
 
 					let xml = quick_xml::se::to_string(room.get())?;
 					player_listen_channel.send_message(xml).await.unwrap();
@@ -171,13 +189,23 @@ pub async fn game(
 							if active_room
 								.get_mut()
 								.add_opponent(
-									OpponentType::Player(player_state.get_player_id().await),
-									Some(player_state.get_player_name().await),
+									OpponentType::Player(session.get_player_id().await),
+									Some(session.get_player_name().await),
 								)
 								.is_ok()
 							{
-								let xml = quick_xml::se::to_string(&active_room.get())?;
-								player_listen_channel.send_message(xml).await.unwrap();
+								{
+									let room_lock = active_room.get_mut();
+									room_lock.add_listener_player_channel(
+										player_listen_channel.0.clone(),
+										OpponentType::Player(session.0.get_player_id().await),
+									);
+									// todo no
+									room_lock.player3_ready = true;
+									room_lock.check_playable();
+								}
+								let switched_room = active_room.get().clone();
+								switched_room.send_state_to_players().await;
 							} else {
 								return Ok(modified_xml_response(&CommandResponse::error())?);
 							}
@@ -195,6 +223,18 @@ pub async fn game(
 					))?)
 				}
 				CommandType::StartTriviador(_) => {
+					let info = PlayerInfo {
+						p1_name: todo!(),
+						p2_name: todo!(),
+						p3_name: todo!(),
+						pd1: todo!(),
+						pd2: todo!(),
+						pd3: todo!(),
+						you: todo!(),
+						game_id: todo!(),
+						room: todo!(),
+						rules: todo!(),
+					};
 					tokio::spawn(async move {
 						ServerGameHandler::new_friendly(
 							player_listen_channel.0,
@@ -213,7 +253,7 @@ pub async fn game(
 					server_command_channel
 						.send_message(ServerCommand::Ready)
 						.await?;
-					player_state.set_listen_ready(true).await;
+					session.set_listen_ready(true).await;
 					Ok(modified_xml_response(&CommandResponse::ok(
 						comm.client_id,
 						comm.mn,
@@ -255,14 +295,17 @@ pub async fn game(
 			let ser: ListenRoot = quick_xml::de::from_str(&body)?;
 
 			// todo find a better way - move this out of listen
-			if player_state.0.get_current_waithall().await == Waithall::Offline {
+			if session.0.get_current_waithall().await == Waithall::Offline {
 				// setup village
-				let msg = quick_xml::se::to_string(&VillageSetupRoot::emulate())?;
+				let msg = quick_xml::se::to_string(&VillageSetupRoot::with_name(
+					session.get_player_name().await,
+					session.get_player_id().await,
+				))?;
 				player_listen_channel.send_message(msg).await.unwrap();
-				player_state.set_current_waithall(Waithall::Village).await;
+				session.set_current_waithall(Waithall::Village).await;
 			}
 
-			player_state.set_listen_ready(ser.listen.is_ready).await;
+			session.set_listen_ready(ser.listen.is_ready).await;
 
 			let msg = player_listen_channel.recv_message().await.unwrap();
 			Ok(format!(

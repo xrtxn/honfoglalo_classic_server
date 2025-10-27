@@ -44,7 +44,7 @@ impl SharedTrivGame {
 		self.0.write().await
 	}
 
-	//todo better error handling
+	// todo better error handling
 	pub(crate) async fn send_xml_channel(
 		&self,
 		player: &PlayerName,
@@ -124,7 +124,7 @@ impl SharedTrivGame {
 		.await;
 	}
 
-	//todo clean up this function
+	// todo clean up this function
 	pub(crate) async fn wait_for_players(&self, players: Vec<PlayerName>) {
 		let utils = self.read().await.utils.clone();
 
@@ -145,7 +145,7 @@ impl SharedTrivGame {
 		.await;
 	}
 
-	//todo make async
+	// todo make async
 	pub(crate) async fn send_to_all_active(&self) {
 		// this avoids a deadlock
 		let utils = self.read().await.utils.clone();

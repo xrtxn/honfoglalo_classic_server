@@ -27,7 +27,7 @@ pub(crate) struct SGame {
 }
 
 pub(crate) mod emulation_config {
-	//todo read from .env or similar
+	// todo read from .env or similar
 	pub(crate) const BASE_SELECTION: bool = true;
 	pub(crate) const AREA_SELECTION: bool = true;
 	pub(crate) const FILL_REMAINING: bool = true;
@@ -184,7 +184,7 @@ impl SGame {
 						info!("All players are eliminated, ending game");
 						break 'war_loop;
 					}
-					//skip eliminated players
+					// skip eliminated players
 					if !self
 						.game
 						.read()

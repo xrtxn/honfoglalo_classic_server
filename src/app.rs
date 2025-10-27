@@ -15,13 +15,13 @@ use scc::HashMap;
 use scc::hash_map::OccupiedEntry;
 use sqlx::postgres::PgPool;
 use tokio::sync::RwLock;
-use tracing::{error, trace, warn};
+use tracing::{error, trace};
 
 use crate::channels::command::request::CommandRoot;
 use crate::channels::{BodyChannelType, parse_xml_multiple};
 use crate::router::{client_castle, countries, friends, game, help, mobil};
 use crate::users::ServerCommand;
-use crate::village::start::friendly_game::ActiveSepRoom;
+use crate::village::start::friendly_game::{ActiveSepRoom, OpponentType};
 use crate::village::waithall::Waithall;
 
 #[derive(Clone)]
@@ -65,13 +65,14 @@ type SharedState = Arc<HashMap<i32, SharedPlayerState>>;
 
 #[derive(Debug)]
 pub(crate) struct PlayerState {
-	is_logged_in: bool,
-	is_listen_ready: bool,
-	current_waithall: Waithall,
-	player_id: i32,
-	player_name: String,
-	command_channel: ServerCommandChannel,
-	listen_channel: XmlPlayerChannel,
+	pub(crate) is_logged_in: bool,
+	pub(crate) is_listen_ready: bool,
+	pub(crate) current_waithall: Waithall,
+	pub(crate) player_id: i32,
+	pub(crate) player_name: String,
+	pub(crate) friendly_game_code: Option<u16>,
+	pub(crate) command_channel: ServerCommandChannel,
+	pub(crate) listen_channel: ListenPlayerChannel,
 }
 
 #[derive(Clone, Debug)]
@@ -85,8 +86,9 @@ impl SharedPlayerState {
 			current_waithall: Waithall::Offline,
 			player_id: 0,
 			player_name: "Anonymous".to_string(),
+			friendly_game_code: None,
 			command_channel: ServerCommandChannel::new(),
-			listen_channel: XmlPlayerChannel::new(),
+			listen_channel: ListenPlayerChannel::new(),
 		};
 		SharedPlayerState(Arc::new(RwLock::new(val)))
 	}
@@ -116,13 +118,19 @@ impl SharedPlayerState {
 }
 
 #[derive(Clone, Debug)]
-pub struct PlayerChannel<T: Clone> {
+pub struct PlayerChannel<T> {
 	tx: flume::Sender<T>,
 	rx: flume::Receiver<T>,
 }
 
+impl<T: Clone> Default for PlayerChannel<T> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl<T: Clone> PlayerChannel<T> {
-	fn new() -> Self {
+	pub(crate) fn new() -> Self {
 		let (tx, rx) = flume::bounded(8);
 		PlayerChannel { tx, rx }
 	}
@@ -144,7 +152,7 @@ impl<T: Clone> PlayerChannel<T> {
 }
 
 pub type ServerCommandChannel = PlayerChannel<ServerCommand>;
-pub type XmlPlayerChannel = PlayerChannel<String>;
+pub type ListenPlayerChannel = PlayerChannel<String>;
 
 pub struct App {
 	db: PgPool,
@@ -163,6 +171,12 @@ impl App {
 		let friendly_rooms: FriendlyRooms = FriendlyRooms::new();
 		let shared_state: SharedState = Arc::new(HashMap::new());
 
+		let mut room = ActiveSepRoom::new(OpponentType::Player(65), "Lajos");
+		room.add_opponent(OpponentType::Robot, None).unwrap();
+		room.add_opponent(OpponentType::Code, None).unwrap();
+
+		friendly_rooms.insert_async(0000, room).await.unwrap();
+
 		let app = Router::new()
 			.route("/mobil.php", post(mobil))
 			.route("/dat/help.json", get(help))
@@ -178,7 +192,7 @@ impl App {
 				shared_state.clone(),
 				set_session_for_player,
 			))
-			.route_layer(middleware::from_fn(auth))
+			.route_layer(middleware::from_fn_with_state(shared_state.clone(), auth))
 			.route_layer(middleware::from_fn(xml_header_extractor))
 			.layer(Extension(self.db.clone()))
 			.layer(Extension(friendly_rooms));
@@ -222,7 +236,11 @@ async fn xml_header_extractor(request: Request, next: Next) -> Response {
 	next.run(req).await
 }
 
-async fn auth(request: Request, next: Next) -> Response {
+async fn auth(
+	axum::extract::State(state): axum::extract::State<SharedState>,
+	request: Request,
+	next: Next,
+) -> Response {
 	use crate::channels::NO_CID;
 
 	// get cid from above parsed xml header
@@ -234,21 +252,26 @@ async fn auth(request: Request, next: Next) -> Response {
 		match ax {
 			crate::channels::BodyChannelType::Command(cmd) => {
 				if cmd.client_id == NO_CID {
-					let new_cid = {
-						let body = request.into_body().collect().await.unwrap().to_bytes();
-						let body_str = String::from_utf8_lossy(&body).to_string();
-						let ser: CommandRoot =
-							quick_xml::de::from_str(&format!("<ROOT>{}</ROOT>", body_str)).unwrap();
-						match ser.msg_type {
-							crate::channels::command::request::CommandType::Login(login) => {
-								if login.name == "a" { 1 } else { 6 }
-							}
-							_ => {
-								error!("Unauthorized command with NO_CID: {:?}", cmd);
-								return StatusCode::UNAUTHORIZED.into_response();
-							}
+					let new_cid;
+					let body = request.into_body().collect().await.unwrap().to_bytes();
+					let body_str = String::from_utf8_lossy(&body).to_string();
+					let ser: CommandRoot =
+						quick_xml::de::from_str(&format!("<ROOT>{}</ROOT>", body_str)).unwrap();
+					match ser.msg_type {
+						crate::channels::command::request::CommandType::Login(login) => {
+							new_cid = if login.name == "felso" { 1 } else { 6 };
+							let player_state = SharedPlayerState::new();
+							player_state.0.write().await.is_logged_in = true;
+							player_state.0.write().await.player_name = login.name.clone();
+							player_state.0.write().await.player_id = new_cid;
+							// todo we should log out the other player if exists
+							state.upsert_async(new_cid, player_state).await;
 						}
-					};
+						_ => {
+							error!("Unauthorized command with NO_CID: {:?}", cmd);
+							return StatusCode::UNAUTHORIZED.into_response();
+						}
+					}
 
 					let resp = crate::utils::modified_xml_response(
 						&crate::channels::command::response::CommandResponse::ok(new_cid, cmd.mn),
@@ -262,7 +285,7 @@ async fn auth(request: Request, next: Next) -> Response {
 			_ => next.run(request).await,
 		}
 	} else {
-		warn!("BodyChannelType is none!");
+		error!("BodyChannelType is none!");
 		StatusCode::UNAUTHORIZED.into_response()
 	}
 }
@@ -272,11 +295,6 @@ async fn set_session_for_player(
 	mut request: Request,
 	next: Next,
 ) -> Response {
-	trace!(
-		"Request reached set_session_for_player middleware {:?}",
-		request.uri()
-	);
-	// get cid from above parsed xml header
 	let cid = if let Some(ax) = request
 		.extensions()
 		.clone()
@@ -288,17 +306,15 @@ async fn set_session_for_player(
 			crate::channels::BodyChannelType::HeartBeat(hb) => hb.client_id,
 		}
 	} else {
-		warn!("No cid found for hashmap!");
-		-128
+		error!("BodyChannelType is none in set_session_for_player!");
+		return StatusCode::INTERNAL_SERVER_ERROR.into_response();
 	};
 
-	let player_state = {
-		let pstate = state
-			.entry_async(cid)
-			.await
-			.or_insert_with(SharedPlayerState::new);
+	let player_state = state.get_async(&cid).await.map(|entry| entry.get().clone());
 
-		pstate.get().clone()
+	let Some(player_state) = player_state else {
+		error!("No player state found for cid: {}", cid);
+		return StatusCode::UNAUTHORIZED.into_response();
 	};
 
 	player_state.0.write().await.player_id = cid;

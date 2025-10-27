@@ -46,6 +46,14 @@ pub mod response {
 		pub message: String,
 	}
 
+	impl PingResponse {
+		pub(crate) fn pong() -> PingResponse {
+			PingResponse {
+				message: "pong".to_string(),
+			}
+		}
+	}
+
 	#[skip_serializing_none]
 	#[derive(Serialize, Deserialize, Debug)]
 	pub struct LoginResult {
