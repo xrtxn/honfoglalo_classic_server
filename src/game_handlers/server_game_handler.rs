@@ -3,13 +3,15 @@ use tokio_stream::StreamExt;
 use tracing::info;
 
 use super::s_game::GamePlayerInfo;
-use crate::app::{ListenPlayerChannel, ServerCommandChannel};
+use crate::app::{
+	GamePlayerChannels, GroupedCommChannels, ListenPlayerChannel, ServerCommandChannel,
+};
 use crate::emulator::Emulator;
 use crate::game_handlers::s_game::{SGame, SGamePlayerInfo};
 use crate::triviador::game::{SharedTrivGame, TriviadorGame};
 use crate::triviador::game_player_data::{GamePlayerData, PlayerName};
 use crate::triviador::player_info::PlayerInfo;
-use crate::triviador::triviador_state::GamePlayerChannels;
+use crate::village::start::friendly_game::OpponentType;
 
 pub(crate) struct ServerGameHandler {}
 
@@ -54,9 +56,6 @@ impl ServerGameHandler {
 			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(true));
 		}
 
-		// initial setup
-		let mut server_game = SGame::new(game.arc_clone(), server_game_players.clone());
-
 		let channels = GamePlayerChannels {
 			xml_channel: player_channel.clone(),
 			command_channel: command_channel.clone(),
@@ -74,6 +73,10 @@ impl ServerGameHandler {
 					.set_channels(Some(channels.clone()));
 			}
 		}
+
+		// initial setup
+		let mut server_game = SGame::new(game.arc_clone(), server_game_players.clone());
+
 		server_game.handle_all().await;
 		info!("Game ended");
 
@@ -83,10 +86,8 @@ impl ServerGameHandler {
 	}
 
 	pub async fn new_friendly_with_players(
-		player_channel: ListenPlayerChannel,
-		command_channel: ServerCommandChannel,
+		grouped: GroupedCommChannels,
 		players: PlayerInfo,
-		game_id: u32,
 		db: PgPool,
 	) {
 		let game = SharedTrivGame::new(TriviadorGame::new_game(players.clone(), db));
@@ -95,43 +96,62 @@ impl ServerGameHandler {
 			server_game_players.add(PlayerName::Player1, SGamePlayerInfo::new(false));
 		} else {
 			server_game_players.add(PlayerName::Player1, SGamePlayerInfo::new(true));
+			server_game_players
+				.get_player_mut(&PlayerName::Player1)
+				.unwrap()
+				.set_channels(Some(
+					grouped
+						.get(&OpponentType::Player(players.pd1.id))
+						.await
+						.unwrap()
+						.clone(),
+				));
 		}
 		if players.pd2.is_bot() {
 			server_game_players.add(PlayerName::Player2, SGamePlayerInfo::new(false));
 		} else {
 			server_game_players.add(PlayerName::Player2, SGamePlayerInfo::new(true));
+			server_game_players
+				.get_player_mut(&PlayerName::Player2)
+				.unwrap()
+				.set_channels(Some(
+					grouped
+						.get(&OpponentType::Player(players.pd2.id))
+						.await
+						.unwrap()
+						.clone(),
+				));
 		}
 		if players.pd3.is_bot() {
 			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(false));
 		} else {
 			server_game_players.add(PlayerName::Player3, SGamePlayerInfo::new(true));
+			server_game_players
+				.get_player_mut(&PlayerName::Player3)
+				.unwrap()
+				.set_channels(Some(
+					grouped
+						.get(&OpponentType::Player(players.pd3.id))
+						.await
+						.unwrap()
+						.clone(),
+				));
+		}
+
+		// copy players (with channels) into the game's utils so send_to_all_active() sees them
+		let mut iter = server_game_players.players_with_info_stream();
+		while let Some((player, info)) = iter.next().await {
+			game.write().await.utils.add(*player, info.clone());
 		}
 
 		// initial setup
 		let mut server_game = SGame::new(game.arc_clone(), server_game_players.clone());
 
-		let channels = GamePlayerChannels {
-			xml_channel: player_channel.clone(),
-			command_channel: command_channel.clone(),
-		};
-
-		let mut iter = server_game_players.players_with_info_stream();
-		while let Some((player, info)) = iter.next().await {
-			game.write().await.utils.add(*player, info.clone());
-			if info.is_player() {
-				game.write()
-					.await
-					.utils
-					.get_player_mut(player)
-					.unwrap()
-					.set_channels(Some(channels.clone()));
-			}
-		}
 		server_game.handle_all().await;
 		info!("Game ended");
 
 		// tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-		player_channel.clear_rx();
-		command_channel.clear_rx();
+		// grouped.get(opponent_type)player_channel.clear_rx();
+		// command_channel.clear_rx();
 	}
 }

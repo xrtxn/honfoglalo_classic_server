@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::str::FromStr;
 
 use serde::ser::SerializeStruct;
@@ -7,7 +6,9 @@ use serde_aux::prelude::deserialize_number_from_string;
 use serde_with::skip_serializing_none;
 use tracing::{error, trace};
 
-use crate::app::ListenPlayerChannel;
+use crate::app::{
+	GamePlayerChannels, GroupedCommChannels, ListenPlayerChannel, ServerCommandChannel,
+};
 use crate::emulator::Emulator;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -146,7 +147,7 @@ pub struct ActiveSepRoom {
 	#[serde(rename = "@STARTDELAY")]
 	pub can_start: bool,
 	#[serde(skip)]
-	listen_channel: HashMap<OpponentType, ListenPlayerChannel>,
+	listen_channel: GroupedCommChannels,
 }
 
 impl ActiveSepRoom {
@@ -163,7 +164,7 @@ impl ActiveSepRoom {
 			player3_ready: false,
 			player3_name: None,
 			can_start: false,
-			listen_channel: HashMap::new(),
+			listen_channel: GroupedCommChannels::new(),
 		}
 	}
 
@@ -192,6 +193,20 @@ impl ActiveSepRoom {
 		}
 	}
 
+	pub(crate) async fn remove_opponent(&mut self, opponent_type: OpponentType) {
+		if self.player2 == Some(opponent_type) {
+			self.player2 = None;
+			self.player2_ready = false;
+			self.player2_name = None;
+			self.listen_channel.remove(&opponent_type).await;
+		} else if self.player3 == Some(opponent_type) {
+			self.player3 = None;
+			self.player3_ready = false;
+			self.player3_name = None;
+			self.listen_channel.remove(&opponent_type).await;
+		}
+	}
+
 	fn can_add_opponent_to_slot(&self, slot: &Option<OpponentType>, is_player: bool) -> bool {
 		slot.is_none() || (is_player && slot.as_ref().map_or(false, |p| *p == OpponentType::Code))
 	}
@@ -216,7 +231,7 @@ impl ActiveSepRoom {
 	/// The client interprets player 1 as themselves. This function creates a new
 	/// room state where the given `player_id` is in the `player1` slot, and other
 	/// players are shifted accordingly.
-	pub(crate) fn switch_places(&self, player_id: OpponentType) -> Self {
+	pub(crate) fn _switch_places(&self, player_id: OpponentType) -> Self {
 		if self.player1 == player_id {
 			return self.clone();
 		}
@@ -250,25 +265,43 @@ impl ActiveSepRoom {
 		new_room
 	}
 
-	pub(crate) fn add_listener_player_channel(
+	pub(crate) async fn add_listener_player_channel(
 		&mut self,
-		channel: ListenPlayerChannel,
+		channels: GamePlayerChannels,
 		player: OpponentType,
 	) {
-		self.listen_channel.insert(player, channel);
+		self.listen_channel.insert(player, channels).await;
 	}
 
 	pub(crate) async fn send_state_to_players(&self) {
 		trace!("Real room: {:?}", self);
-		for (player, channel) in &self.listen_channel {
-			if matches!(player, OpponentType::Player(_)) {
-				trace!("Sending friendly room state to player: {:?}", player);
-				// let ordered_room = self.switch_places(*player);
-				// let xml = quick_xml::se::to_string(&ordered_room).unwrap();
-				let xml = quick_xml::se::to_string(&self).unwrap();
-				channel.send_message(xml).await.unwrap();
+
+		// Collect the player targets from the current room state.
+		let targets = [Some(self.player1), self.player2, self.player3]
+			.into_iter()
+			.flatten()
+			.filter(|p| matches!(p, OpponentType::Player(_)))
+			.collect::<Vec<_>>();
+
+		// Serialize once and reuse for all sends.
+		let xml = quick_xml::se::to_string(&self).unwrap();
+
+		for player in targets {
+			trace!("Sending friendly room state to player: {:?}", player);
+
+			// Use GroupedCommChannels' scc::HashMap-backed getter.
+			if let Some(listen) = self.listen_channel.get_listen(&player).await {
+				if let Err(err) = listen.send_message(xml.clone()).await {
+					error!("Failed to send room state to {:?}: {}", player, err);
+				}
+			} else {
+				trace!("No listen channel found for player: {:?}", player);
 			}
 		}
+	}
+
+	pub(crate) async fn get_channels(&self) -> GroupedCommChannels {
+		self.listen_channel.clone()
 	}
 }
 
@@ -329,7 +362,7 @@ fn friendly_test() {
 		player3_ready: false,
 		player3_name: None,
 		can_start: false,
-		listen_channel: HashMap::new(),
+		listen_channel: GroupedCommChannels::new(),
 	};
 
 	let serialized = quick_xml::se::to_string(&room).unwrap();

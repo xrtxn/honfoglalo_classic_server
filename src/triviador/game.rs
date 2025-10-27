@@ -24,6 +24,7 @@ use crate::triviador::{
 };
 use crate::users::ServerCommand;
 
+#[derive(Debug)]
 pub struct SharedTrivGame(Arc<RwLock<TriviadorGame>>);
 
 impl SharedTrivGame {
@@ -147,38 +148,16 @@ impl SharedTrivGame {
 
 	// todo make async
 	pub(crate) async fn send_to_all_active(&self) {
+		trace!("send_to_all_active called");
 		// this avoids a deadlock
 		let utils = self.read().await.utils.clone();
+		trace!("send_to_all_active got utils clone {:?}", utils);
 		let mut iter = utils.active_with_info_stream();
 		while let Some((player, _)) = iter.next().await {
 			send_player_commongame(self.arc_clone().borrow(), player).await;
 			trace!("send_to_all_active: {:?}", player);
 		}
 	}
-
-	// todo only return a stream
-	// pub(crate) async fn action_players(&self) -> HashMap<PlayerName, SGamePlayerInfo> {
-	// 	let game_reader = self.read().await;
-	// 	let mut players: HashMap<PlayerName, SGamePlayerInfo> = HashMap::with_capacity(2);
-	// 	let round_info = &game_reader.state.round_info;
-	// 	let active_player = round_info.active_player;
-	// 	players.insert(
-	// 		round_info.active_player,
-	// 		game_reader
-	// 			.utils
-	// 			.get_player(&round_info.active_player)
-	// 			.unwrap()
-	// 			.clone(),
-	// 	);
-	// 	game_reader.utils.get_player(&active_player);
-	// 	if let Some(player) = round_info.attacked_player {
-	// 		players.insert(
-	// 			player,
-	// 			game_reader.utils.get_player(&player).unwrap().clone(),
-	// 		);
-	// 	}
-	// 	players
-	// }
 }
 
 #[skip_serializing_none]

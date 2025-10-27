@@ -5,6 +5,7 @@ use rand::prelude::{IteratorRandom, StdRng};
 use tokio_stream::{Stream, StreamExt};
 use tracing::{info, trace, warn};
 
+use crate::app::GamePlayerChannels;
 use crate::game_handlers::area_conquer_handler::AreaConquerHandler;
 use crate::game_handlers::base_handler::BaseHandler;
 use crate::game_handlers::battle_handler::BattleHandler;
@@ -16,7 +17,6 @@ use crate::triviador::game::SharedTrivGame;
 use crate::triviador::game_player_data::PlayerName;
 use crate::triviador::game_state::GameState;
 use crate::triviador::round_info::RoundInfo;
-use crate::triviador::triviador_state::GamePlayerChannels;
 use crate::triviador::war_order::WarOrder;
 
 use super::endscreen_handler::EndScreenHandler;
@@ -28,16 +28,17 @@ pub(crate) struct SGame {
 
 pub(crate) mod emulation_config {
 	// todo read from .env or similar
-	pub(crate) const BASE_SELECTION: bool = true;
-	pub(crate) const AREA_SELECTION: bool = true;
-	pub(crate) const FILL_REMAINING: bool = true;
-	pub(crate) const BATTLE: bool = true;
+	pub(crate) const BASE_SELECTION: bool = false;
+	pub(crate) const AREA_SELECTION: bool = false;
+	pub(crate) const FILL_REMAINING: bool = false;
+	pub(crate) const BATTLE: bool = false;
 }
 
 impl SGame {
 	const PLAYER_COUNT: usize = 3;
 
 	pub(crate) fn new(game: SharedTrivGame, players: GamePlayerInfo) -> SGame {
+		trace!("Creating new SGame {:?} {:?}", game, players);
 		SGame {
 			game: game.arc_clone(),
 			players,

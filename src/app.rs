@@ -93,27 +93,12 @@ impl SharedPlayerState {
 		SharedPlayerState(Arc::new(RwLock::new(val)))
 	}
 
-	#[allow(dead_code)]
-	pub async fn get_listen_ready(&self) -> bool {
-		self.0.read().await.is_listen_ready
+	pub(crate) async fn read_lock(&self) -> tokio::sync::RwLockReadGuard<'_, PlayerState> {
+		self.0.read().await
 	}
-	pub async fn set_login(&self, val: bool) {
-		self.0.write().await.is_logged_in = val;
-	}
-	pub async fn set_listen_ready(&self, val: bool) {
-		self.0.write().await.is_listen_ready = val;
-	}
-	pub async fn get_current_waithall(&self) -> Waithall {
-		self.0.read().await.current_waithall.clone()
-	}
-	pub async fn set_current_waithall(&self, waithall: Waithall) {
-		self.0.write().await.current_waithall = waithall;
-	}
-	pub async fn get_player_id(&self) -> i32 {
-		self.0.read().await.player_id
-	}
-	pub async fn get_player_name(&self) -> String {
-		self.0.read().await.player_name.clone()
+
+	pub(crate) async fn write_lock(&self) -> tokio::sync::RwLockWriteGuard<'_, PlayerState> {
+		self.0.write().await
 	}
 }
 
@@ -153,6 +138,61 @@ impl<T: Clone> PlayerChannel<T> {
 
 pub type ServerCommandChannel = PlayerChannel<ServerCommand>;
 pub type ListenPlayerChannel = PlayerChannel<String>;
+
+#[derive(Clone, Debug)]
+pub(crate) struct GamePlayerChannels {
+	pub xml_channel: ListenPlayerChannel,
+	pub command_channel: ServerCommandChannel,
+}
+
+impl GamePlayerChannels {
+	pub fn new(xml_channel: ListenPlayerChannel, command_channel: ServerCommandChannel) -> Self {
+		GamePlayerChannels {
+			xml_channel,
+			command_channel,
+		}
+	}
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct GroupedCommChannels {
+	ch: HashMap<OpponentType, GamePlayerChannels>,
+}
+
+impl GroupedCommChannels {
+	pub fn new() -> Self {
+		GroupedCommChannels { ch: HashMap::new() }
+	}
+
+	pub async fn insert(&mut self, opponent_type: OpponentType, channels: GamePlayerChannels) {
+		self.ch.insert_async(opponent_type, channels).await.unwrap();
+	}
+
+	pub async fn get(
+		&self,
+		opponent_type: &OpponentType,
+	) -> Option<OccupiedEntry<'_, OpponentType, GamePlayerChannels>> {
+		self.ch.get_async(opponent_type).await
+	}
+
+	pub async fn get_listen(&self, opponent_type: &OpponentType) -> Option<ListenPlayerChannel> {
+		self.ch
+			.get_async(opponent_type)
+			.await
+			.map(|entry| entry.get().xml_channel.clone())
+	}
+
+	pub async fn get_command(&self, opponent_type: &OpponentType) -> Option<ServerCommandChannel> {
+		self.ch
+			.get_async(opponent_type)
+			.await
+			.map(|entry| entry.get().command_channel.clone())
+	}
+
+	pub async fn remove(&mut self, opponent_type: &OpponentType) -> Option<GamePlayerChannels> {
+		self.ch.remove_async(opponent_type).await.map(|(_, v)| v)
+	}
+}
 
 pub struct App {
 	db: PgPool,

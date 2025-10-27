@@ -59,9 +59,3 @@ pub(crate) struct TriviadorState {
 	#[serde(skip)]
 	pub eliminated_players: Vec<PlayerName>,
 }
-
-#[derive(Clone, Debug)]
-pub(crate) struct GamePlayerChannels {
-	pub xml_channel: ListenPlayerChannel,
-	pub command_channel: ServerCommandChannel,
-}
